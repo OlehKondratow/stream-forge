@@ -1,3 +1,4 @@
+# main.py
 import asyncio
 import argparse
 import uvicorn
@@ -12,22 +13,22 @@ from app.telemetry import TelemetryProducer, close_telemetry
 from app.loader import run_loader
 from app.kafka_client import KafkaControlListener
 
-# Use uvloop for performance
+# Используем uvloop для повышения производительности
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 stop_event = asyncio.Event()
 
 async def handle_control_messages(telemetry: TelemetryProducer):
-    """Subscribe to control (stop) commands from Kafka."""
+    """Подписка на управляющие команды из Kafka (например, STOP)."""
     listener = KafkaControlListener(config.QUEUE_ID)
     await listener.start()
     try:
         async for command in listener.listen():
             if command.get("command") == "stop":
-                logger.warning(f"🛑 Received STOP command: {command}")
+                logger.warning(f"🛑 Получена команда STOP: {command}")
                 await telemetry.send_status_update(
                     status="interrupted",
-                    message="Stopped by user command",
+                    message="Остановлено по команде",
                     finished=True
                 )
                 stop_event.set()
@@ -36,11 +37,11 @@ async def handle_control_messages(telemetry: TelemetryProducer):
         await listener.stop()
 
 async def run_app_logic():
-    """The core logic of the application."""
+    """Основная бизнес-логика: запуск WS-загрузки и прослушка команд."""
     telemetry = TelemetryProducer()
     await telemetry.start()
-    logger.info(f"🚀 Starting Loader WS Orderbook: {config.QUEUE_ID} -> {config.KAFKA_TOPIC}")
-    await telemetry.send_status_update(status="started", message="Loader WS Orderbook started")
+    logger.info(f"🚀 Запуск loader-ws-orderbook: {config.QUEUE_ID} -> {config.KAFKA_TOPIC}")
+    await telemetry.send_status_update(status="started", message="WS Orderbook загрузка начата")
 
     loader_task = asyncio.create_task(run_loader(stop_event, telemetry))
     control_task = asyncio.create_task(handle_control_messages(telemetry))
@@ -48,37 +49,34 @@ async def run_app_logic():
     done, pending = await asyncio.wait([loader_task, control_task], return_when=asyncio.FIRST_COMPLETED)
 
     for task in pending:
+        task.cancel()
         try:
-            task.cancel()
             await task
         except asyncio.CancelledError:
             pass
 
-    logger.info("✅ Loader WS Orderbook shutdown complete.")
+    logger.info("✅ Завершение работы loader-ws-orderbook.")
     await close_telemetry(telemetry)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    logger.info("Lifespan startup")
-    # Run the main application logic in the background
+    """Обработка старта и остановки FastAPI."""
+    logger.info("🔄 startup FastAPI")
     app_logic_task = asyncio.create_task(run_app_logic())
     yield
-    # Shutdown
-    logger.info("Lifespan shutdown")
-    stop_event.set() # Signal tasks to stop
-    await app_logic_task # Wait for the logic to clean up
+    logger.info("🔻 shutdown FastAPI")
+    stop_event.set()
+    await app_logic_task
 
-# Initialize FastAPI app
-app = FastAPI(title="Loader WS Orderbook Service", lifespan=lifespan)
+app = FastAPI(title="Loader WS Orderbook", lifespan=lifespan)
 app.include_router(metrics_router)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--noop", action="store_true", help="Accepted for compatibility, but does nothing.")
+    parser.add_argument("--noop", action="store_true", help="NOOP флаг (например, для CI)")
     args = parser.parse_args()
 
     if args.noop:
-        logger.info("NOOP mode enabled, but starting server anyway for CI health check.")
+        logger.info("🧪 NOOP-режим включен — запускаем сервер для проверки CI")
 
     uvicorn.run(app, host="0.0.0.0", port=8080)

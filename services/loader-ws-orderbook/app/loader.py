@@ -1,73 +1,70 @@
+# app/loader.py
+
 import asyncio
+import json
+import websockets
 from loguru import logger
-import orjson # For faster JSON processing
+from datetime import datetime
+
 from app import config
+from app.kafka_client import KafkaProducerClient
 from app.telemetry import TelemetryProducer
-from app.kafka_producer import KafkaDataProducer
-from app.ws_client import BinanceWSClient
-from app.metrics import records_fetched_total, records_published_total, errors_total
+
 
 async def run_loader(stop_event: asyncio.Event, telemetry: TelemetryProducer):
-    logger.info("Starting loader for WebSocket order book...")
+    """
+    Подключается к Binance WebSocket, получает данные и отправляет их в Kafka.
+    """
+    uri = f"{config.BINANCE_WS_URL}/{config.SYMBOL}@depth"
+    logger.info(f"🔌 Подключение к Binance WebSocket: {uri}")
+    producer = KafkaProducerClient()
+    await producer.start()
 
-    ws_client = None
-    data_producer = None
+    message_count = 0
+    telemetry_counter = 0
+    telemetry_interval = config.TELEMETRY_INTERVAL
+
     try:
-        # Determine stream type based on config.TYPE (e.g., "ws_depth", "ws_diff_depth")
-        stream_type = config.TYPE.replace("ws_", "") # Remove "ws_" prefix
+        async with websockets.connect(uri) as ws:
+            logger.info("✅ WebSocket подключен успешно.")
 
-        ws_client = BinanceWSClient(
-            symbol=config.SYMBOL,
-            stream_type=stream_type
-        )
-        data_producer = KafkaDataProducer()
-        await data_producer.start()
+            while not stop_event.is_set():
+                try:
+                    message = await asyncio.wait_for(ws.recv(), timeout=10)
+                    data = json.loads(message)
 
-        total_fetched = 0
-        total_published = 0
+                    parsed = {
+                        "symbol": config.SYMBOL,
+                        "timestamp": data.get("E"),
+                        "bids": data.get("b", []),
+                        "asks": data.get("a", []),
+                        "event_time": datetime.utcnow().isoformat(),
+                        "queue_id": config.QUEUE_ID,
+                        "type": config.TYPE,
+                        "message_count": message_count
+                    }
 
-        await telemetry.send_status_update(status="loading", message="Loader started, connecting to WebSocket.")
+                    await producer.send_json(config.KAFKA_TOPIC, parsed)
+                    message_count += 1
+                    telemetry_counter += 1
 
-        async for message in ws_client.connect():
-            if stop_event.is_set():
-                logger.info("Stop event received, exiting loader loop.")
-                break
+                    if telemetry_counter >= telemetry_interval:
+                        await telemetry.send_progress(message_count)
+                        telemetry_counter = 0
 
-            # Binance order book WebSocket messages have a specific structure
-            # Example: {"e":"depthUpdate","E":1678886400000,"s":"BTCUSDT","U":12345,"u":12350,"b":[["20000.00","1.0"]],"a":[["20001.00","1.0"]]}
-            if message and message.get("e") in ["depthUpdate", "depth"]: # Handle both full depth and diff depth
-                orderbook_data = message
-                
-                await data_producer.send(orderbook_data)
-                records_fetched_total.inc()
-                records_published_total.inc()
-                total_fetched += 1
-                total_published += 1
+                except asyncio.TimeoutError:
+                    logger.warning("⏳ WebSocket таймаут ожидания данных.")
+                except websockets.ConnectionClosed:
+                    logger.warning("🔁 WebSocket соединение закрыто. Переподключение...")
+                    break
+                except Exception as e:
+                    logger.error(f"❌ Ошибка обработки сообщения: {e}")
 
-                if total_published % 100 == 0: # Send telemetry update every 100 records
-                    await telemetry.send_status_update(
-                        status="loading",
-                        message=f"Fetched {total_fetched} and published {total_published} records.",
-                        records_written=total_published
-                    )
-                logger.debug(f"Processed WS order book for {orderbook_data.get('s', 'N/A')}.")
-
-        logger.info(f"Loader finished. Total fetched: {total_fetched}, total published: {total_published}")
-        await telemetry.send_status_update(
-            status="finished",
-            message=f"Loader finished. Total records published: {total_published}",
-            finished=True,
-            records_written=total_published
-        )
-
-    except asyncio.CancelledError:
-        logger.info("Loader task cancelled.")
-        await telemetry.send_status_update(status="interrupted", message="Loader task cancelled.")
     except Exception as e:
-        logger.error(f"Fatal error in loader: {e}", exc_info=True)
-        errors_total.inc()
-        await telemetry.send_status_update(status="error", message="Fatal loader error", error_message=str(e))
+        logger.exception(f"🚨 Ошибка подключения к WebSocket: {e}")
+        await telemetry.send_status_update(status="error", message=str(e), finished=True)
+
     finally:
-        if data_producer:
-            await data_producer.stop()
-        logger.info("Loader finished.")
+        await producer.stop()
+        logger.info(f"📦 Всего сообщений отправлено в Kafka: {message_count}")
+        await telemetry.send_progress(message_count)
