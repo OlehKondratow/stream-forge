@@ -50,6 +50,7 @@ deploy-arango-connector:
 update-badge-arango-connector:
   extends: .update_badge_python_service
   needs:
+    - build-arango-connector
     - deploy-arango-connector
   variables:
     SERVICE_NAME: arango-connector
