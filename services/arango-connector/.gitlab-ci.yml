@@ -35,7 +35,7 @@ deploy-arango-connector:
   needs:
     - integration-test-arango-connector
   variables:
-    K8S_MANIFEST_PATH: services/arango-connector/k8s/arango-connector-deployment.yaml
+    K8S_MANIFEST_PATH: services/arango-connector/k8s/arango-connector-job.yaml
 
 update-badge-arango-connector:
   extends: .update_badge_python_service

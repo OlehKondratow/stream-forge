@@ -1,11 +1,7 @@
-# Test-only dependencies for dummy-service
+# Test-only dependencies for arango-connector
 pytest
 pytest-asyncio
 httpx
-
-# App deps that tests import directly
-aiokafka
-loguru
 
 # Coverage / JSON reporters for quality badges
 pytest-cov
