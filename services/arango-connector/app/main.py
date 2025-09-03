@@ -61,7 +61,15 @@ async def main():
     await close_telemetry(telemetry)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        logger.exception(f"❌ Fatal error in Arango Connector: {e}")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--noop", action="store_true")
+    args = parser.parse_args()
+
+    if args.noop:
+        logger.info("NOOP mode enabled, skipping service start.")
+    else:
+        try:
+            asyncio.run(main())
+        except Exception as e:
+            logger.exception(f"❌ Fatal error in Arango Connector: {e}")
