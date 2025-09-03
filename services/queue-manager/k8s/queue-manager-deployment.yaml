@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: queue-manager
-          image: registry.dmz.home/kinga/stream-forge/queue-manager:1.0.0
+          image: registry.dmz.home/kinga/stream-forge/queue-manager:1.0.1
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -80,18 +80,18 @@ spec:
             - name: ARANGO_URL
               valueFrom:
                 secretKeyRef:
-                  name: arango-credentials
-                  key: url
+                  name: stf-shared-secret
+                  key: ARANGO_URL
             - name: ARANGO_DB
               valueFrom:
                 secretKeyRef:
-                  name: arango-credentials
-                  key: database
+                  name: stf-shared-secret
+                  key: ARANGO_DB
             - name: ARANGO_USER
               valueFrom:
                 secretKeyRef:
-                  name: arango-credentials
-                  key: username
+                  name: stf-shared-secret
+                  key: ARANGO_USER
             - name: CA_PATH
               value: "/usr/local/share/ca-certificates/ca.crt"
           volumeMounts:
