@@ -25,6 +25,18 @@ spec:
           env:
             - name: K8S_NAMESPACE
               value: "stf"
+            # Переменные, которые ожидает приложение
+            - name: LOADER_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: queue-manager-loaders-config
+                  key: LOADER_IMAGE_WS_ORDERBOOK # Используем один из образов как значение по умолчанию
+            - name: CONSUMER_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: queue-manager-loaders-config
+                  key: DUMMY_SERVICE_IMAGE # Пример, можно выбрать другой
+            # Более гранулярные переменные для гибкости
             - name: LOADER_IMAGE_WS_ORDERBOOK
               valueFrom:
                 configMapKeyRef:
