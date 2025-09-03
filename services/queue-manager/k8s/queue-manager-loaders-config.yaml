@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: queue-manager-loaders-config
+  namespace: stf
+data:
+  # Образы для разных типов загрузчиков и других сервисов
+  # Версии взяты из файлов VERSION в директориях сервисов
+  LOADER_IMAGE_WS_ORDERBOOK: "registry.dmz.home/kinga/stream-forge/loader-ws-orderbook:0.1.0"
+  LOADER_IMAGE_API_CANDLES: "registry.dmz.home/kinga/stream-forge/loader-api-candles:1.0.0"
+  LOADER_IMAGE_API_TRADES: "registry.dmz.home/kinga/stream-forge/loader-api-trades:1.0.0"
+  DUMMY_SERVICE_IMAGE: "registry.dmz.home/kinga/stream-forge/dummy-service:v0.1.4"
+  GNN_TRAINER_IMAGE: "registry.dmz.home/kinga/stream-forge/gnn-trainer:0.1.0"
+  VISUALIZER_IMAGE: "registry.dmz.home/kinga/stream-forge/visualizer:v0.1.0"
+  ARANGO_CONNECTOR_IMAGE: "registry.dmz.home/kinga/stream-forge/arango-connector:1.0.0"
+  # Добавьте другие образы по необходимости

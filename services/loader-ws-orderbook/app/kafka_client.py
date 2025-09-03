@@ -63,19 +63,34 @@ class KafkaControlListener:
         logger.info("🎧 KafkaControlListener запущен")
 
     async def listen(self) -> AsyncGenerator[dict, None]:
+        if not self.consumer:
+            logger.error("Consumer не инициализирован")
+            return
+
         try:
             async for msg in self.consumer:
+                # Проверяем, что сообщение не пустое (tombstone)
+                if not msg.value:
+                    logger.debug("🕳️ Получено пустое сообщение (tombstone), пропускаем.")
+                    continue
+
                 try:
                     data = json.loads(msg.value.decode("utf-8"))
-                    if data.get("queue_id") == self.queue_id:
-                        logger.debug(f"📩 Получена команда для очереди {self.queue_id}: {data}")
-                        yield data
-                    else:
-                        logger.debug(f"🔕 Пропущена команда для другой очереди: {data.get('queue_id')}")
                 except json.JSONDecodeError:
-                    logger.warning("⚠️ Не удалось декодировать JSON из сообщения Kafka")
+                    logger.warning(f"⚠️ Не удалось декодировать JSON из сообщения Kafka: {msg.value}")
+                    continue # Пропускаем некорректное сообщение
+
+                # Фильтруем сообщения по queue_id
+                if data.get("queue_id") == self.queue_id:
+                    logger.info(f"📩 Получена команда для своей очереди: {data}")
+                    yield data
+                else:
+                    # Это нормальная ситуация, просто логируем в debug
+                    logger.debug(f"🔕 Пропущена команда для другой очереди: {data.get('queue_id')}")
+
         except Exception as e:
-            logger.error(f"❌ Ошибка в KafkaControlListener: {e}")
+            logger.error(f"❌ Критическая ошибка в KafkaControlListener: {e}", exc_info=True)
+            # В зависимости от стратегии, можно переподключиться или остановить приложение
             raise
 
     async def stop(self):

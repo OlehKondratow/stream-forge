@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: queue-manager
-          image: registry.dmz.home/kinga/stream-forge/queue-manager:latest # Образ будет обновляться CI/CD
+          image: registry.dmz.home/kinga/stream-forge/queue-manager:1.0.0
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -25,34 +25,58 @@ spec:
           env:
             - name: K8S_NAMESPACE
               value: "stf"
-            # --- Подключение переменных из GitLab CI/CD Variables ---
-            - name: LOADER_IMAGE
-              value: "${LOADER_IMAGE}"
-            - name: CONSUMER_IMAGE
-              value: "${CONSUMER_IMAGE}"
-            - name: GNN_TRAINER_IMAGE
-              value: "${GNN_TRAINER_IMAGE}"
-            - name: VISUALIZER_IMAGE
-              value: "${VISUALIZER_IMAGE}"
-            - name: GRAPH_BUILDER_IMAGE
-              value: "registry.dmz.home/streamforge/graph-builder:v0.1.0" # Можно также вынести в переменную
-            
-            # --- Подключение переменных из Kubernetes Secrets ---
-            - name: KAFKA_BOOTSTRAP_SERVERS
+            - name: LOADER_IMAGE_WS_ORDERBOOK
               valueFrom:
-                secretKeyRef:
-                  name: kafka-credentials
-                  key: bootstrap_servers
+                configMapKeyRef:
+                  name: queue-manager-loaders-config
+                  key: LOADER_IMAGE_WS_ORDERBOOK
+            - name: LOADER_IMAGE_API_CANDLES
+              valueFrom:
+                configMapKeyRef:
+                  name: queue-manager-loaders-config
+                  key: LOADER_IMAGE_API_CANDLES
+            - name: LOADER_IMAGE_API_TRADES
+              valueFrom:
+                configMapKeyRef:
+                  name: queue-manager-loaders-config
+                  key: LOADER_IMAGE_API_TRADES
+            - name: DUMMY_SERVICE_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: queue-manager-loaders-config
+                  key: DUMMY_SERVICE_IMAGE
+            - name: GNN_TRAINER_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: queue-manager-loaders-config
+                  key: GNN_TRAINER_IMAGE
+            - name: VISUALIZER_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: queue-manager-loaders-config
+                  key: VISUALIZER_IMAGE
+            - name: ARANGO_CONNECTOR_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: queue-manager-loaders-config
+                  key: ARANGO_CONNECTOR_IMAGE
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "k3-kafka-bootstrap.kafka:9093"
             - name: KAFKA_USER
               valueFrom:
                 secretKeyRef:
-                  name: kafka-credentials
-                  key: username
+                  name: stf-shared-secret
+                  key: KAFKA_USER
             - name: KAFKA_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: kafka-credentials
-                  key: password
+                  name: stf-shared-secret
+                  key: KAFKA_PASSWORD
+            - name: ARANGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stf-shared-secret
+                  key: ARANGO_PASSWORD
             - name: ARANGO_URL
               valueFrom:
                 secretKeyRef:
@@ -68,11 +92,13 @@ spec:
                 secretKeyRef:
                   name: arango-credentials
                   key: username
-            - name: ARANGO_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: arango-credentials
-                  key: password
+            - name: CA_PATH
+              value: "/usr/local/share/ca-certificates/ca.crt"
+          volumeMounts:
+            - name: kafka-ca-volume
+              mountPath: /usr/local/share/ca-certificates/ca.crt
+              subPath: dev-ca.crt
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /health/live
@@ -85,6 +111,10 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: kafka-ca-volume
+          configMap:
+            name: dev-ca-certificates
 
 ---
 

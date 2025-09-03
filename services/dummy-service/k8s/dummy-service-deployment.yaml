@@ -22,9 +22,15 @@ spec:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: "k3-kafka-bootstrap.kafka:9093"
             - name: KAFKA_USER
-              value: "user-streamforge"
+              valueFrom:
+                secretKeyRef:
+                  name: dummy-service-secret
+                  key: KAFKA_USER
             - name: KAFKA_PASSWORD
-              value: "qqIJ511mX1c2FOpNZDGaw5WqblS1pxeD" # В продакшене используйте Secret
+              valueFrom:
+                secretKeyRef:
+                  name: dummy-service-secret
+                  key: KAFKA_PASSWORD
             - name: QUEUE_EVENTS_TOPIC
               value: "queue-events"
             - name: QUEUE_CONTROL_TOPIC
@@ -39,7 +45,10 @@ spec:
             - name: ARANGO_DB
               value: "streamforge"
             - name: ARANGO_PASSWORD
-              value: "7ZAxJ7w1ItEoKmqWdE" # В продакшене используйте Secret
+              valueFrom:
+                secretKeyRef:
+                  name: dummy-service-secret
+                  key: ARANGO_PASSWORD
             - name: ARANGO_URL
               value: "http://abase-3.dmz.home:8529"
             - name: ARANGO_USER
