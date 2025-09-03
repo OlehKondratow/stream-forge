@@ -51,7 +51,7 @@ spec:
             - name: QUEUE_EVENTS_TOPIC
               value: "queue-events"
             - name: ARANGO_URL
-              value: "http://arango-cluster.db:8529"
+              value: "http://abase-3.dmz.home:8529"
             - name: ARANGO_DB
               value: "streamforge"
             - name: ARANGO_USER

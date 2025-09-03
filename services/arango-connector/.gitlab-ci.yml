@@ -28,6 +28,7 @@ integration-test-arango-connector:
   variables:
     SERVICE_NAME: arango-connector
     SERVICE_PATH: services/arango-connector
+    ARANGO_URL: http://abase-3.dmz.home:8529
   before_script:
     # Ensure curl is available for health checks and install dependencies
     - apt-get update && apt-get install -y curl
