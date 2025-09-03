@@ -4,12 +4,12 @@ from fastapi.responses import JSONResponse
 router = APIRouter(tags=["Health"])
 
 
-@router.get("/health/live", summary="Liveness probe")
+@router.get("/live", summary="Liveness probe")
 async def live():
     return JSONResponse(content={"status": "live"})
 
 
-@router.get("/health/ready", summary="Readiness probe")
+@router.get("/ready", summary="Readiness probe")
 async def ready():
     return JSONResponse(content={"status": "ready"})
 
