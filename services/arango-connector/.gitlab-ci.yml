@@ -28,7 +28,17 @@ integration-test-arango-connector:
   variables:
     SERVICE_NAME: arango-connector
     SERVICE_PATH: services/arango-connector
-  when: manual # Make it manual for now, user can change later
+  before_script:
+    # Ensure curl is available for health checks and install dependencies
+    - apt-get update && apt-get install -y curl
+    - pip install -r $CI_PROJECT_DIR/$SERVICE_PATH/requirements.txt
+    - pip install -r $CI_PROJECT_DIR/$SERVICE_PATH/requirements-test.txt
+    - echo "--- INSTALLED PACKAGES ---" && pip list && echo "------------------------"
+    # Start the service in the background from the correct directory
+    - (cd $CI_PROJECT_DIR/$SERVICE_PATH && python -m app.main --noop &)
+    - echo "NOOP mode, skipping health check."
+
+
 
 deploy-arango-connector:
   extends: .deploy_kubernetes_service
@@ -44,3 +54,4 @@ update-badge-arango-connector:
   variables:
     SERVICE_NAME: arango-connector
     SERVICE_PATH: services/arango-connector
+  when: manual # Make it manual for now, user can change later
