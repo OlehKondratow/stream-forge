@@ -21,6 +21,7 @@ SUPPORTED_TYPE_PREFIXES = (
     "ws_candles",
     "ws_trades",
     "ws_depth",
+    "ws_orderbook", # <-- Добавляем эту строку
     "gnn_graph",
     "gnn_train",
     "realtime_graph",
