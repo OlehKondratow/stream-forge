@@ -1,0 +1,13 @@
+# Test-only dependencies for dummy-service
+pytest
+pytest-asyncio
+httpx
+
+# App deps that tests import directly
+aiokafka
+loguru
+
+# Coverage / JSON reporters for quality badges
+pytest-cov
+pytest-json-report
+pytest-xdist
