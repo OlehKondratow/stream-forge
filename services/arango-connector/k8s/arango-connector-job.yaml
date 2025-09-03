@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: arango-connector-job-test
+  namespace: stf
+  labels:
+    app: arango-connector
+    queue-id: arango-connector-test
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: arango-connector
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: arango-connector
+          image: registry.dmz.home/kinga/stream-forge/arango-connector:1.0.0
+          imagePullPolicy: Always
+          env:
+            - name: QUEUE_ID
+              value: "arango-connector-test"
+            - name: SYMBOL
+              value: "TEST_DATA"
+            - name: TYPE
+              value: "raw_json"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "k3-kafka-bootstrap.kafka:9093"
+            - name: KAFKA_TOPIC
+              value: "pixelusdt-orderbook"
+            - name: COLLECTION_NAME
+              value: "pixelusdt-orderbook-collection"
+            - name: TELEMETRY_PRODUCER_ID
+              value: "arango-connector-test-instance"
+            - name: KAFKA_USER_CONSUMER
+              valueFrom:
+                secretKeyRef:
+                  name: stf-shared-secret
+                  key: KAFKA_USER
+            - name: KAFKA_PASSWORD_CONSUMER
+              valueFrom:
+                secretKeyRef:
+                  name: stf-shared-secret
+                  key: KAFKA_PASSWORD
+            - name: CA_PATH
+              value: "/usr/local/share/ca-certificates/ca.crt"
+            - name: QUEUE_CONTROL_TOPIC
+              value: "queue-control"
+            - name: QUEUE_EVENTS_TOPIC
+              value: "queue-events"
+            - name: ARANGO_URL
+              value: "http://arango-cluster.db:8529"
+            - name: ARANGO_DB
+              value: "streamforge"
+            - name: ARANGO_USER
+              value: "root"
+            - name: ARANGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stf-shared-secret
+                  key: ARANGO_PASSWORD
+          volumeMounts:
+            - name: kafka-ca-volume
+              mountPath: /usr/local/share/ca-certificates/ca.crt
+              subPath: dev-ca.crt
+              readOnly: true
+      volumes:
+        - name: kafka-ca-volume
+          configMap:
+            name: dev-ca-certificates
+      serviceAccountName: full-access-sa
+      nodeSelector:
+        streamforge-node: "true"

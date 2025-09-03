@@ -37,6 +37,14 @@ async def run_consumer(stop_event: asyncio.Event, telemetry: TelemetryProducer):
         username=config.ARANGO_USER,
         password=config.ARANGO_PASSWORD,
     )
+
+    # Ensure the collection exists
+    if not db.has_collection(config.COLLECTION_NAME):
+        logger.info(f"Collection '{config.COLLECTION_NAME}' not found, creating it.")
+        db.create_collection(config.COLLECTION_NAME)
+    else:
+        logger.info(f"Collection '{config.COLLECTION_NAME}' already exists.")
+        
     collection = db.collection(config.COLLECTION_NAME)
     logger.info(f"Connected to ArangoDB collection: {config.COLLECTION_NAME}")
 
