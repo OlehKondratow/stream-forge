@@ -46,7 +46,7 @@ class MicroserviceConfig(BaseModel):
     graph_collection: Optional[str] = Field(None, description="Коллекция с графом (для gnn-trainer).")
     inference_interval: Optional[str] = Field(None, description="Интервал инференса (для gnn-trainer).")
     source: Optional[str] = Field(None, description="Источник данных (для visualizer).")
-    interval: Optional[str] = Field(None, description="Интервал свечей (например, '5m').")
+    interval: Optional[str] = Field(None, description="Интервал свечей (например, '1m', '5m', '1h', '1d').")
 
     @validator("type")
     def validate_type(cls, v):
