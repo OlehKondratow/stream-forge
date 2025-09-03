@@ -1,6 +1,7 @@
 """
 Сервис для запуска заданий (Jobs) в Kubernetes.
 """
+import asyncio # New import
 from loguru import logger
 from kubernetes import client, config
 
@@ -56,7 +57,7 @@ async def launch_k8s_job(
     )
 
     try:
-        api_response = api_instance.create_namespaced_job(body=job, namespace=namespace)
+        api_response = await asyncio.to_thread(api_instance.create_namespaced_job, body=job, namespace=namespace)
         logger.info(f"✅ Задание Kubernetes '{job_name}' успешно создано.")
         return api_response
     except client.ApiException as e:
