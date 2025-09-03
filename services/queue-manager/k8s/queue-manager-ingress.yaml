@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: queue-manager-ingress
+  namespace: stf
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: homelab-ca-issuer
+spec:
+  rules:
+    - host: stf.dmz.home
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: queue-manager-svc
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - stf.dmz.home
+      secretName: stf-dmz-home-tls # cert-manager создаст этот секрет

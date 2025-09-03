@@ -3,6 +3,7 @@ import argparse
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse # New import
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.logging_config import logger
@@ -25,6 +26,30 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan
 )
+
+@app.get("/", response_class=HTMLResponse, summary="Главное меню")
+async def read_root():
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>StreamForge Queue Manager</title>
+        <link rel="icon" href="/docs/favicon.ico">
+    </head>
+    <body>
+        <h1>Добро пожаловать в StreamForge Queue Manager!</h1>
+        <p>Это главная страница сервиса Queue Manager.</p>
+        <ul>
+            <li><a href="/docs">Документация API (Swagger UI)</a></li>
+            <li><a href="/redoc">Документация API (Redoc)</a></li>
+            <li><a href="/health/live">Проверка живости (Liveness Probe)</a></li>
+            <li><a href="/health/ready">Проверка готовности (Readiness Probe)</a></li>
+        </ul>
+        <p>Для получения дополнительной информации, пожалуйста, обратитесь к документации API.</p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 # CORS
 app.add_middleware(
