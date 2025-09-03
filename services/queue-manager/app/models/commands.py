@@ -69,14 +69,109 @@ class QueueStartRequest(BaseModel):
     class Config:
         extra = "forbid"
         schema_extra = {
-            "example": {
-                "symbol": "BTCUSDT",
-                "time_range": "2024-06-01:2024-06-30",
-                "microservices": [
-                    {"target": "loader-producer", "type": "api_candles_5m", "interval": "5m"},
-                    {"target": "arango-connector", "type": "api_candles_5m"},
-                ],
-            }
+            "examples": [
+                {
+                    "summary": "1. Запуск конвейера для загрузки свечей (loader-producer -> arango-connector)",
+                    "value": {
+                        "symbol": "BTCUSDT",
+                        "time_range": "2024-06-01:2024-06-30",
+                        "microservices": [
+                            {"target": "loader-producer", "type": "api_candles_5m", "interval": "5m"},
+                            {"target": "arango-connector", "type": "api_candles_5m"},
+                        ],
+                    }
+                },
+                {
+                    "summary": "2. Запуск конвейера для загрузки часовых свечей (loader-producer -> arango-connector)",
+                    "value": {
+                        "symbol": "BTCUSDT",
+                        "time_range": "2024-06-01:2024-06-30",
+                        "microservices": [
+                            {"target": "loader-producer", "type": "api_candles_1h", "interval": "1h"},
+                            {"target": "arango-connector", "type": "api_candles_1h"},
+                        ],
+                    }
+                },
+                {
+                    "summary": "3. Запуск загрузчика стакана (loader-ws-orderbook)",
+                    "value": {
+                        "symbol": "BTCUSDT",
+                        "time_range": "2024-01-01:2024-01-02",
+                        "microservices": [
+                            {"target": "loader-ws", "type": "ws_orderbook"}
+                        ],
+                    }
+                },
+                {
+                    "summary": "4. Запуск построителя графов (graph-builder)",
+                    "value": {
+                        "symbol": "BTCUSDT",
+                        "time_range": "2024-07-01:2024-07-07",
+                        "microservices": [
+                            {
+                                "target": "graph-builder",
+                                "type": "gnn_graph",
+                                "collection_inputs": ["candles_5m", "trades"],
+                                "collection_output": "btc_usdt_graph"
+                            }
+                        ],
+                    }
+                },
+                {
+                    "summary": "5. Запуск обучения GNN-модели (gnn-trainer)",
+                    "value": {
+                        "symbol": "BTCUSDT",
+                        "microservices": [
+                            {
+                                "target": "gnn-trainer",
+                                "type": "gnn_train",
+                                "graph_collection": "btc_usdt_graph",
+                                "model_output": "btc_usdt_gnn_model"
+                            }
+                        ],
+                    }
+                },
+                {
+                    "summary": "6. Запуск визуализатора (visualizer)",
+                    "value": {
+                        "symbol": "BTCUSDT",
+                        "microservices": [
+                            {
+                                "target": "visualizer",
+                                "type": "realtime_graph",
+                                "source": "btc_usdt_graph_stream"
+                            }
+                        ],
+                    }
+                },
+                {
+                    "summary": "7. Запуск загрузчика WebSocket свечей (loader-ws-candles)",
+                    "value": {
+                        "symbol": "BTCUSDT",
+                        "microservices": [
+                            {"target": "loader-ws", "type": "ws_candles"}
+                        ],
+                    }
+                },
+                {
+                    "summary": "8. Запуск загрузчика WebSocket трейдов (loader-ws-trades)",
+                    "value": {
+                        "symbol": "BTCUSDT",
+                        "microservices": [
+                            {"target": "loader-ws", "type": "ws_trades"}
+                        ],
+                    }
+                },
+                {
+                    "summary": "9. Запуск загрузчика WebSocket глубины рынка (loader-ws-depth)",
+                    "value": {
+                        "symbol": "BTCUSDT",
+                        "microservices": [
+                            {"target": "loader-ws", "type": "ws_depth"}
+                        ],
+                    }
+                }
+            ]
         }
 
 # --- Legacy and Test Models ---
