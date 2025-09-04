@@ -146,6 +146,11 @@ class CandleAgg:
         first_ts_val = b["first_ts"] if b["first_ts"] is not None else key
         last_ts_val = b["last_ts"] if b["last_ts"] is not None else key
 
+        logger.debug(f"Finalizing bucket for key={key}")
+        logger.debug(f"  open={open_val}, high={high_val}, low={low_val}, close={close_val}")
+        logger.debug(f"  volume={volume_val}, quote_volume={quote_volume_val}")
+        logger.debug(f"  first_ts={first_ts_val}, last_ts={last_ts_val}")
+        logger.debug(f"  price_volume_distribution={dict(b['price_volume_distribution'])}")
         return {
             "ts": key,
             "open": open_val,
