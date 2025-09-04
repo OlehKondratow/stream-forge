@@ -3,7 +3,7 @@ import json
 import time
 from datetime import datetime, timezone
 from loguru import logger
-import websockets
+# import websockets # Removed
 import pandas as pd
 import pandas_ta as ta
 from arango import ArangoClient
@@ -21,11 +21,12 @@ class IndicatorCalculator:
         self.indicators_config = config.INDICATORS_CONFIG
         self.arango_db = None
         self.arango_collection = None
-        self.websocket_uri = f"wss://stream.binance.com:9443/ws/{self.symbol.lower()}@depth" # Assuming Binance depth stream
+        # self.websocket_uri = f"wss://stream.binance.com:9443/ws/{self.symbol.lower()}@depth" # Removed
         self.data_buffer = [] # Buffer to store order book data for VWAP calculation
         self.buffer_lock = asyncio.Lock()
         self.last_calculation_time = 0
         self.calculation_interval = 5 # Calculate every 5 seconds for now, can be configurable
+        self.kafka_consumer = None # New Kafka consumer instance
 
     async def _connect_arango(self):
         client = ArangoClient(hosts=config.ARANGO_URL)
@@ -80,8 +81,8 @@ class IndicatorCalculator:
             else:
                 return 0.0
 
-    async def _process_websocket_message(self, message: dict):
-        """Processes a single WebSocket message, adding it to the buffer."""
+    async def _process_kafka_message(self, message: dict):
+        """Processes a single Kafka message, adding it to the buffer."""
         async with self.buffer_lock:
             self.data_buffer.append(message)
             # Optionally, limit buffer size to avoid excessive memory usage
@@ -140,14 +141,14 @@ class IndicatorCalculator:
             "timestamp": timestamp_ms,
             "indicators": calculated_indicators,
             "metadata": {
-                "source": "binance_websocket",
+                "source": "kafka_orderbook", # Changed source
                 "processed_at": datetime.now(timezone.utc).isoformat(),
                 "vwap": vwap # Include VWAP for context
             }
         }
 
         try:
-            self.arango_collection.insert(document)
+            await self.arango_collection.insert(document)
             documents_saved_total.inc()
             logger.info(f"✅ Документ сохранен в ArangoDB: {document['_key']}")
             await self.telemetry.send_status_update("processing", f"Saved document {document['_key']}")
@@ -162,29 +163,37 @@ class IndicatorCalculator:
 
     async def start(self):
         await self._connect_arango()
-        logger.info(f"Connecting to WebSocket: {self.websocket_uri}")
-        while True:
-            try:
-                async with websockets.connect(self.websocket_uri) as websocket:
-                    logger.info(f"WebSocket connection established for {self.symbol}.")
-                    while True:
-                        try:
-                            message = await websocket.recv()
-                            data = json.loads(message)
-                            await self._process_websocket_message(data)
-                        except websockets.exceptions.ConnectionClosedOK:
-                            logger.info("WebSocket connection closed gracefully. Reconnecting...")
-                            break # Exit inner loop to reconnect
-                        except websockets.exceptions.ConnectionClosedError as e:
-                            logger.error(f"WebSocket connection closed with error: {e}. Reconnecting...")
-                            break # Exit inner loop to reconnect
-                        except json.JSONDecodeError:
-                            logger.error(f"Failed to decode JSON from WebSocket message: {message}")
-                            errors_total.inc()
-                        except Exception as e:
-                            logger.error(f"Error receiving or processing WebSocket message: {e}")
-                            errors_total.inc()
-            except Exception as e:
-                logger.error(f"Failed to connect to WebSocket {self.websocket_uri}: {e}. Retrying in 5 seconds...")
-                errors_total.inc()
-                await asyncio.sleep(5) # Wait before retrying connection
+        logger.info(f"Starting Kafka consumer for topic: {config.KAFKA_TOPIC}")
+        self.kafka_consumer = AIOKafkaConsumer(
+            config.KAFKA_TOPIC,
+            bootstrap_servers=config.KAFKA_BOOTSTRAP_SERVERS,
+            group_id=f"{config.QUEUE_ID}-orderbook-consumer", # New consumer group
+            enable_auto_commit=True,
+            sasl_mechanism="SCRAM-SHA-512",
+            security_protocol="SASL_SSL",
+            sasl_plain_username=config.KAFKA_USER_CONSUMER,
+            sasl_plain_password=config.KAFKA_PASSWORD_CONSUMER,
+            ssl_context=config.get_ssl_context(),
+            auto_offset_reset="latest"
+        )
+        await self.kafka_consumer.start()
+        logger.info(f"Kafka consumer connected to topic: {config.KAFKA_TOPIC}")
+
+        try:
+            async for msg in self.kafka_consumer:
+                if not msg.value:
+                    logger.debug("🕳️ Received empty message (tombstone), skipping.")
+                    continue
+                try:
+                    data = json.loads(msg.value.decode("utf-8"))
+                    await self._process_kafka_message(data)
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to decode JSON from Kafka message: {msg.value}")
+                    errors_total.inc()
+                except Exception as e:
+                    logger.error(f"Error processing Kafka message: {e}")
+                    errors_total.inc()
+        finally:
+            if self.kafka_consumer:
+                await self.kafka_consumer.stop()
+                logger.info("Kafka consumer stopped.")

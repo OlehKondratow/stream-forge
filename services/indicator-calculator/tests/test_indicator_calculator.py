@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 import pandas as pd
 import pandas_ta as ta
+from aiokafka import AIOKafkaConsumer # Import AIOKafkaConsumer
 
 # Mock config and telemetry for testing
 class MockConfig:
@@ -17,6 +18,14 @@ class MockConfig:
     ARANGO_DB = "mock_db"
     ARANGO_USER = "mock_user"
     ARANGO_PASSWORD = "mock_password"
+    KAFKA_TOPIC = "test-topic" # Added
+    KAFKA_BOOTSTRAP_SERVERS = "localhost:9092" # Added
+    KAFKA_USER_CONSUMER = "user" # Added
+    KAFKA_PASSWORD_CONSUMER = "password" # Added
+    CA_PATH = "/tmp/ca.crt" # Added
+
+    def get_ssl_context(): # Added
+        return MagicMock()
 
 class MockTelemetryProducer:
     async def start(self):
@@ -87,53 +96,47 @@ async def test_perform_calculations_and_save(mock_indicator_calculator):
 
     await mock_indicator_calculator._perform_calculations_and_save()
 
-    await mock_indicator_calculator._perform_calculations_and_save()
-
     mock_indicator_calculator.arango_collection.insert.assert_called_once()
     mock_indicator_calculator.telemetry.send_status_update.assert_called_once()
     assert mock_indicator_calculator.data_buffer == [] # Buffer should be cleared
 
 @pytest.mark.asyncio
-async def test_process_websocket_message(mock_indicator_calculator):
+async def test_process_kafka_message(mock_indicator_calculator): # Renamed
     mock_indicator_calculator._perform_calculations_and_save = AsyncMock()
     mock_indicator_calculator.calculation_interval = -1 # Trigger immediate calculation
 
     message = {"e": "depthUpdate", "b": [["100", "10"]], "a": [["101", "5"]]}
-    await mock_indicator_calculator._process_websocket_message(message)
+    await mock_indicator_calculator._process_kafka_message(message) # Renamed
 
     assert len(mock_indicator_calculator.data_buffer) == 1
     mock_indicator_calculator._perform_calculations_and_save.assert_called_once()
 
 @pytest.mark.asyncio
-async def test_start_websocket_connection_and_processing(mock_indicator_calculator):
-    # Mock websockets.connect to simulate receiving one message and then closing
-    mock_websocket = AsyncMock()
-    mock_websocket.recv.side_effect = [
-        json.dumps({"e": "depthUpdate", "b": [["100", "10"]], "a": [["101", "5"]]}),
-        websockets.exceptions.ConnectionClosedOK, # Simulate graceful close after one message
+async def test_start_kafka_consumption(mock_indicator_calculator):
+    # Mock AIOKafkaConsumer
+    mock_consumer = AsyncMock(spec=AIOKafkaConsumer)
+    mock_consumer.start = AsyncMock()
+    mock_consumer.stop = AsyncMock()
+    mock_consumer.__aiter__.return_value = AsyncMock()
+    mock_consumer.__aiter__.return_value.__anext__.side_effect = [
+        MagicMock(value=json.dumps({"e": "depthUpdate", "b": [["100", "10"]], "a": [["101", "5"]]}).encode("utf-8")),
+        asyncio.CancelledError # Simulate stopping the consumer after one message
     ]
-    
-    with (
-        pytest.raises(websockets.exceptions.ConnectionClosedOK), # Expecting the exception to propagate
-        # Patch websockets.connect
-        # This is a bit tricky with async context managers.
-        # A more robust way would be to mock the entire websockets module or use a test server.
-        # For this basic test, we'll mock the connect function directly.
-        # Note: This mock might not perfectly simulate the async with behavior for all cases.
-        # A better approach for real integration tests would be to use a test WebSocket server.
-        # For unit testing, mocking the internal methods is more appropriate.
-    ):
-        with MagicMock(return_value=mock_websocket) as mock_connect:
-            websockets.connect = mock_connect
-            # Run start() in a separate task and cancel it after a short delay
-            # to prevent it from running indefinitely in the test environment.
-            task = asyncio.create_task(mock_indicator_calculator.start())
-            await asyncio.sleep(0.1) # Give it a moment to connect and process
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass # Expected cancellation
 
-    mock_websocket.recv.assert_called()
+    # Patch AIOKafkaConsumer
+    with MagicMock(return_value=mock_consumer) as mock_aiokafka_consumer:
+        AIOKafkaConsumer = mock_aiokafka_consumer
+        mock_indicator_calculator.kafka_consumer = mock_consumer # Assign the mock consumer
+
+        # Run start() in a separate task and cancel it after a short delay
+        task = asyncio.create_task(mock_indicator_calculator.start())
+        await asyncio.sleep(0.1) # Give it a moment to connect and process
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass # Expected cancellation
+
+    mock_consumer.start.assert_called_once()
+    mock_consumer.stop.assert_called_once()
     assert len(mock_indicator_calculator.data_buffer) == 1 # Should have processed one message

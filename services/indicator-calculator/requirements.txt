@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 loguru
-websockets
+
 python-arango
 pandas-ta
 pandas
