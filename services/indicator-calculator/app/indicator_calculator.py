@@ -254,7 +254,7 @@ class IndicatorCalculator:
         self.last_saved_ts = 0
 
     async def _connect_arango(self):
-        client = AioArangoClient(hosts=config.ARANGO_URL)
+        client = ArangoClient(hosts=config.ARANGO_URL)
         self.arango_db = client.db(
             config.ARANGO_DB,
             username=config.ARANGO_USER,
@@ -333,7 +333,7 @@ class IndicatorCalculator:
         }
 
         try:
-            await self.arango_collection.insert(document)
+            self.arango_collection.insert(document)
             documents_saved_total.inc()
             logger.info(f"✅ Документ сохранен в ArangoDB: {document['_key']}")
             await self.telemetry.send_status_update("processing", f"Saved document {document['_key']}")
