@@ -1,6 +1,6 @@
 import os
 import ssl
-import json
+import json # Keep json import for now, might be needed for INDICATORS_CONFIG parsing
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -11,24 +11,21 @@ env_path = Path(".") / ".env"
 load_dotenv(dotenv_path=env_path)
 
 # ───────────────────────────────────────────────
-# Загрузка конфигурации индикаторов из config.json
-# ───────────────────────────────────────────────
-CONFIG_FILE_PATH = Path(__file__).parent.parent / "config.json"
-try:
-    with open(CONFIG_FILE_PATH, "r") as f:
-        APP_CONFIG = json.load(f)
-except FileNotFoundError:
-    raise RuntimeError(f"Config file not found at {CONFIG_FILE_PATH}")
-except json.JSONDecodeError:
-    raise RuntimeError(f"Error decoding JSON from config file at {CONFIG_FILE_PATH}")
-
-# ───────────────────────────────────────────────
 # Основные переменные
 # ───────────────────────────────────────────────
 QUEUE_ID: str = os.getenv("QUEUE_ID", "indicator-calculator-default")
-SYMBOL: str = APP_CONFIG.get("symbol", os.getenv("SYMBOL", "BTCUSDT"))
-DB_COLLECTION: str = APP_CONFIG.get("db_collection", os.getenv("DB_COLLECTION", "technical_indicators_stream"))
-INDICATORS_CONFIG: list = APP_CONFIG.get("indicators", [])
+# SYMBOL и DB_COLLECTION теперь будут браться только из переменных окружения
+SYMBOL: str = os.getenv("SYMBOL", "BTCUSDT")
+DB_COLLECTION: str = os.getenv("DB_COLLECTION", "technical_indicators_stream")
+
+# INDICATORS_CONFIG теперь будет браться из переменной окружения,
+# которая должна быть JSON-строкой. Если переменная не задана,
+# будет использоваться пустой список.
+INDICATORS_CONFIG_STR: str = os.getenv("INDICATORS_CONFIG", "[]")
+try:
+    INDICATORS_CONFIG: list = json.loads(INDICATORS_CONFIG_STR)
+except json.JSONDecodeError:
+    raise ValueError("INDICATORS_CONFIG environment variable is not a valid JSON string.")
 
 # Candle Aggregation Settings
 CANDLE_INTERVAL: str = os.getenv("CANDLE_INTERVAL", "5m") # e.g., "1s", "5s", "1m"
