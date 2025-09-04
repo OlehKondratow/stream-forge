@@ -28,6 +28,11 @@ test-indicator-calculator:
   extends: .test_python_service
   variables:
     SERVICE_PATH: services/indicator-calculator
+  script:
+    - pip install -r $CI_PROJECT_DIR/$SERVICE_PATH/requirements.txt
+    - pip install -r $CI_PROJECT_DIR/$SERVICE_PATH/requirements-test.txt
+    - export PYTHONPATH=$PYTHONPATH:$CI_PROJECT_DIR/$SERVICE_PATH
+    - python -m pytest $CI_PROJECT_DIR/$SERVICE_PATH/tests/ --ignore=$CI_PROJECT_DIR/$SERVICE_PATH/tests/integration/ --junitxml=${SERVICE_NAME}-${CI_COMMIT_SHORT_SHA}-report.xml --durations=0
   when: manual
 
 deploy-indicator-calculator:
