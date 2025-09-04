@@ -157,14 +157,6 @@ class CandleAgg:
             "first_ts": first_ts_val,
             "last_ts": last_ts_val,
             "price_volume_distribution": dict(b["price_volume_distribution"])
-        }"high"],
-            "low": b["low"],
-            "close": b["close"],
-            "volume": b["volume"],
-            "quote_volume": b["quote_volume"],
-            "first_ts": b["first_ts"],
-            "last_ts": b["last_ts"],
-            "price_volume_distribution": dict(b["price_volume_distribution"]) # Convert defaultdict to dict
         }
 
     def flush_ready(self, now_ms: int):
