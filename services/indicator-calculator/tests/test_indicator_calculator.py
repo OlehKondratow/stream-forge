@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch # Import patch
 import pandas as pd
 import pandas_ta as ta
 from aiokafka import AIOKafkaConsumer # Import AIOKafkaConsumer
@@ -124,8 +124,7 @@ async def test_start_kafka_consumption(mock_indicator_calculator):
     ]
 
     # Patch AIOKafkaConsumer
-    with MagicMock(return_value=mock_consumer) as mock_aiokafka_consumer:
-        AIOKafkaConsumer = mock_aiokafka_consumer
+    with patch('aiokafka.AIOKafkaConsumer', return_value=mock_consumer):
         mock_indicator_calculator.kafka_consumer = mock_consumer # Assign the mock consumer
 
         # Run start() in a separate task and cancel it after a short delay
