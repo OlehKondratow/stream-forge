@@ -35,7 +35,7 @@ deploy-loader-ws-orderbook:
   needs:
     - integration-test-loader-ws-orderbook
   variables:
-    K8S_MANIFEST_PATH: services/loader-ws-orderbook/k8s/loader-ws-orderbook-deployment.yaml
+    K8S_MANIFEST_PATH: services/loader-ws-orderbook/k8s/loader-ws-orderbook-job.yaml
 
 update-badge-loader-ws-orderbook:
   extends: .update_badge_python_service

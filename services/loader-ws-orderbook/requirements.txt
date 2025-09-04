@@ -1,8 +1,7 @@
-websockets
 uvloop
-orjson
 fastapi
-uvicorn
+loguru
 python-dotenv
-prometheus-client
 aiokafka
+prometheus-client
+websockets

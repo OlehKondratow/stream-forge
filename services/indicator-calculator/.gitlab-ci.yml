@@ -1,0 +1,48 @@
+include:
+  - project: 'kinga/stream-forge'
+    ref: main
+    file: '/.gitlab/ci-templates/Python-Service.gitlab-ci.yml'
+  - project: 'kinga/stream-forge'
+    ref: main
+    file: '/.gitlab/ci-templates/Kubernetes-Deploy.gitlab-ci.yml'
+
+build-indicator-calculator:
+  extends: .build_python_service
+  needs:
+    - test-indicator-calculator
+  variables:
+    SERVICE_NAME: indicator-calculator
+    SERVICE_PATH: services/indicator-calculator
+    CI_REGISTRY_IMAGE: $CI_REGISTRY/kinga/stream-forge/indicator-calculator
+
+integration-test-indicator-calculator:
+  extends: .integration_test_python_service
+  needs:
+    - build-indicator-calculator
+  variables:
+    SERVICE_NAME: indicator-calculator
+    SERVICE_PATH: services/indicator-calculator
+  when: manual # Make it manual for now, user can change later
+
+test-indicator-calculator:
+  extends: .test_python_service
+  variables:
+    SERVICE_PATH: services/indicator-calculator
+  when: manual
+
+deploy-indicator-calculator:
+  extends: .deploy_kubernetes_service
+  needs:
+    - integration-test-indicator-calculator
+  variables:
+    K8S_MANIFEST_PATH: services/indicator-calculator/k8s/indicator-calculator-job.yaml
+
+update-badge-indicator-calculator:
+  extends: .update_badge_python_service
+  needs:
+    - build-indicator-calculator
+    - deploy-indicator-calculator
+  variables:
+    SERVICE_NAME: indicator-calculator
+    SERVICE_PATH: services/indicator-calculator
+  when: manual # Make it manual for now, user can change later

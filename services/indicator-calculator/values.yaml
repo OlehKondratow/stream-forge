@@ -1,0 +1,33 @@
+# values.yaml for indicator-calculator
+
+isJob: true
+
+image:
+  repository: registry.dmz.home/kinga/stream-forge/indicator-calculator
+  tag: 0.0.1 # Initial version
+
+env:
+  # Common Kafka and ArangoDB variables will be inherited from the base chart
+  # Specific variables for indicator-calculator
+  - name: SYMBOL
+    value: "BTCUSDT"
+  - name: DB_COLLECTION
+    value: "technical_indicators_stream"
+  - name: KAFKA_TOPIC
+    value: "pixelusdt-orderbook" # Example, will be set by queue-manager
+  - name: TELEMETRY_PRODUCER_ID
+    value: "indicator-calculator-instance" # Example, will be set by queue-manager
+
+serviceAccount:
+  rbac:
+    rules:
+      # Minimal permissions for an indicator-calculator
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "list"]
+      - apiGroups: [""]
+        resources: ["configmaps", "secrets"]
+        verbs: ["get"]
+      - apiGroups: ["kafka.strimzi.io"]
+        resources: ["kafkatopics", "kafkausers"]
+        verbs: ["get", "list"]

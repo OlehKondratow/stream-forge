@@ -1,4 +1,3 @@
-# main.py
 import asyncio
 import argparse
 import uvicorn
@@ -10,7 +9,7 @@ from fastapi import FastAPI
 from app import config
 from app.metrics import metrics_router
 from app.telemetry import TelemetryProducer, close_telemetry
-from app.loader import run_loader
+from app.indicator_calculator import IndicatorCalculator
 from app.kafka_client import KafkaControlListener
 
 # Используем uvloop для повышения производительности
@@ -18,7 +17,7 @@ asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 stop_event = asyncio.Event()
 
-async def handle_control_messages(telemetry: TelemetryProducer):
+async def handle_control_messages(telemetry: TelemetryProducer, calculator: IndicatorCalculator):
     """Подписка на управляющие команды из Kafka (например, STOP)."""
     listener = KafkaControlListener(config.QUEUE_ID)
     await listener.start()
@@ -37,16 +36,17 @@ async def handle_control_messages(telemetry: TelemetryProducer):
         await listener.stop()
 
 async def run_app_logic():
-    """Основная бизнес-логика: запуск WS-загрузки и прослушка команд."""
+    """Основная бизнес-логика: запуск расчета индикаторов и прослушка команд."""
     telemetry = TelemetryProducer()
     await telemetry.start()
-    logger.info(f"🚀 Запуск loader-ws-orderbook: {config.QUEUE_ID} -> {config.KAFKA_TOPIC}")
-    await telemetry.send_status_update(status="started", message="WS Orderbook загрузка начата")
+    logger.info(f"🚀 Запуск Indicator Calculator: {config.QUEUE_ID} -> {config.DB_COLLECTION}")
+    await telemetry.send_status_update(status="started", message="Indicator Calculator запущен")
 
-    loader_task = asyncio.create_task(run_loader(stop_event, telemetry))
-    control_task = asyncio.create_task(handle_control_messages(telemetry))
+    calculator = IndicatorCalculator(telemetry)
+    calculator_task = asyncio.create_task(calculator.start())
+    control_task = asyncio.create_task(handle_control_messages(telemetry, calculator))
 
-    done, pending = await asyncio.wait([loader_task, control_task], return_when=asyncio.FIRST_COMPLETED)
+    done, pending = await asyncio.wait([calculator_task, control_task], return_when=asyncio.FIRST_COMPLETED)
 
     for task in pending:
         task.cancel()
@@ -55,7 +55,7 @@ async def run_app_logic():
         except asyncio.CancelledError:
             pass
 
-    logger.info("✅ Завершение работы loader-ws-orderbook.")
+    logger.info("✅ Завершение работы Indicator Calculator.")
     await close_telemetry(telemetry)
 
 @asynccontextmanager
@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
         logger.info("🧪 NOOP-режим включен — пропускаем запуск бизнес-логики")
         yield
 
-app = FastAPI(title="Loader WS Orderbook", lifespan=lifespan)
+app = FastAPI(title="Indicator Calculator", lifespan=lifespan)
 app.include_router(metrics_router)
 
 if __name__ == "__main__":

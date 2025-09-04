@@ -1,0 +1,30 @@
+{
+  "symbol": "BTCUSDT",
+  "db_collection": "technical_indicators_stream",
+  "indicators": [
+    {
+      "name": "RSI",
+      "enabled": true,
+      "params": {
+        "length": 14
+      }
+    },
+    {
+      "name": "MACD",
+      "enabled": true,
+      "params": {
+        "fast": 12,
+        "slow": 26,
+        "signal": 9
+      }
+    },
+    {
+      "name": "BBANDS",
+      "enabled": false,
+      "params": {
+        "length": 20,
+        "std": 2.0
+      }
+    }
+  ]
+}
