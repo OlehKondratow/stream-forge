@@ -7,7 +7,8 @@ from loguru import logger
 import numpy as np # Added
 import pandas as pd
 import pandas_ta as ta
-from arango import ArangoClient, AioArangoClient
+from arango import ArangoClient
+from python_aioarango import AioArangoClient
 from aiokafka import AIOKafkaConsumer
 
 from app import config

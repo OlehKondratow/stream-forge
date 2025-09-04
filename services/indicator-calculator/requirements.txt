@@ -4,7 +4,8 @@ loguru
 prometheus_client
 aiokafka
 
-python-arango==7.5.0
+python-arango
+python-aioarango
 pandas-ta
 pandas
 numpy==1.26.4
