@@ -240,12 +240,17 @@ class IndicatorCalculator:
         if "price" in message and "qty" in message: # It's a trade
             self.aggregator.on_trade(int(message["ts"]), float(message["price"]), float(message["qty"]))
             logger.debug(f"Processed trade: {message.get('ts')}")
+        self.aggregator.on_trade(int(message["timestamp"]), float(message["price"]), float(message["qty"]))
+            logger.debug(f"Processed trade: {message.get('timestamp')}")
+        elif "best_bid" in message and "best_ask" in message: # It's TOB
+            self.aggregator.on_tob(int(message["timestamp"]), float(message["best_bid"]), float(message["best_ask"]))
+            logger.debug(f"Processed TOB: {message.get('timestamp')}")
         elif "bids" in message and "asks" in message: # It's an order book update
             if message["bids"] and message["asks"]:
                 best_bid = float(message["bids"][0][0])
                 best_ask = float(message["asks"][0][0])
-                self.aggregator.on_tob(int(message["ts"]), best_bid, best_ask)
-                logger.debug(f"Processed Order Book TOB: {message.get('ts')}")
+                self.aggregator.on_tob(int(message["timestamp"]), best_bid, best_ask)
+                logger.debug(f"Processed Order Book TOB: {message.get('timestamp')}")
             else:
                 logger.debug(f"Received empty bids or asks in order book update: {message}")
         else:
