@@ -222,7 +222,7 @@ class IndicatorCalculator:
     async def _connect_arango(self):
         client = ArangoClient(hosts=config.ARANGO_URL)
         self.arango_db = client.db(
-            config.DB_COLLECTION,
+            config.ARANGO_DB,
             username=config.ARANGO_USER,
             password=config.ARANGO_PASSWORD,
         )
