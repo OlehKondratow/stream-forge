@@ -5,7 +5,7 @@ prometheus_client
 aiokafka
 
 python-arango
-python-aioarango
+aioarango
 pandas-ta
 pandas
 numpy==1.26.4
