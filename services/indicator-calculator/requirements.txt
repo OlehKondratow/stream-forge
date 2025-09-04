@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 loguru
+prometheus_client
 
 python-arango
 pandas-ta

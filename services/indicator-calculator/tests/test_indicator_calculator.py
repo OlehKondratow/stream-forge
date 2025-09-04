@@ -123,6 +123,9 @@ async def test_start_kafka_consumption(mock_indicator_calculator):
         asyncio.CancelledError # Simulate stopping the consumer after one message
     ]
 
+    # Mock _connect_arango
+    mock_indicator_calculator._connect_arango = AsyncMock()
+
     # Patch AIOKafkaConsumer
     with patch('aiokafka.AIOKafkaConsumer', return_value=mock_consumer):
         mock_indicator_calculator.kafka_consumer = mock_consumer # Assign the mock consumer
@@ -136,6 +139,7 @@ async def test_start_kafka_consumption(mock_indicator_calculator):
         except asyncio.CancelledError:
             pass # Expected cancellation
 
+    mock_indicator_calculator._connect_arango.assert_called_once() # Assert that it was called
     mock_consumer.start.assert_called_once()
     mock_consumer.stop.assert_called_once()
     assert len(mock_indicator_calculator.data_buffer) == 1 # Should have processed one message

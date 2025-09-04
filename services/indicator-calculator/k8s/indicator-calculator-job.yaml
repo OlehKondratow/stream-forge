@@ -1,11 +1,14 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: indicator-calculator-job
+  name: indicator-calculator-job-test
   namespace: stf # Assuming 'stf' namespace for services
   labels:
     app: indicator-calculator
+    queue-id: indicator-calculator-test
 spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:
@@ -14,15 +17,21 @@ spec:
       restartPolicy: Never
       containers:
         - name: indicator-calculator
-          image: registry.dmz.home/kinga/stream-forge/indicator-calculator:1.0.0 # Placeholder image
+          image: registry.dmz.home/kinga/stream-forge/indicator-calculator:0.0.1 # Placeholder image
           imagePullPolicy: Always
           env:
+            - name: QUEUE_ID
+              value: "indicator-calculator-test"
+            - name: SYMBOL
+              value: "BTCUSDT"
+            - name: DB_COLLECTION
+              value: "technical_indicators_stream"
             - name: KAFKA_BOOTSTRAP_SERVERS
-              value: "k3-kafka-bootstrap.kafka:9093" # Placeholder
-            - name: ARANGO_URL
-              value: "http://abase-3.dmz.home:8529" # Placeholder
-            - name: ARANGO_DB
-              value: "streamforge" # Placeholder
+              value: "k3-kafka-bootstrap.kafka:9093"
+            - name: KAFKA_TOPIC
+              value: "pixelusdt-orderbook" # Input topic for orderbook data
+            - name: TELEMETRY_PRODUCER_ID
+              value: "indicator-calculator-test-instance"
             - name: KAFKA_USER_PRODUCER
               valueFrom:
                 secretKeyRef:
@@ -33,6 +42,26 @@ spec:
                 secretKeyRef:
                   name: stf-shared-secret
                   key: KAFKA_PASSWORD
+            - name: KAFKA_USER_CONSUMER
+              valueFrom:
+                secretKeyRef:
+                  name: stf-shared-secret
+                  key: KAFKA_USER
+            - name: KAFKA_PASSWORD_CONSUMER
+              valueFrom:
+                secretKeyRef:
+                  name: stf-shared-secret
+                  key: KAFKA_PASSWORD
+            - name: CA_PATH
+              value: "/usr/local/share/ca-certificates/ca.crt"
+            - name: CONTROL_TOPIC
+              value: "queue-control"
+            - name: TELEMETRY_TOPIC
+              value: "queue-events"
+            - name: ARANGO_URL
+              value: "http://abase-3.dmz.home:8529"
+            - name: ARANGO_DB
+              value: "streamforge"
             - name: ARANGO_USER
               value: "root"
             - name: ARANGO_PASSWORD
@@ -40,8 +69,6 @@ spec:
                 secretKeyRef:
                   name: stf-shared-secret
                   key: ARANGO_PASSWORD
-            - name: CA_PATH
-              value: "/usr/local/share/ca-certificates/ca.crt" # Placeholder
           volumeMounts:
             - name: kafka-ca-volume
               mountPath: /usr/local/share/ca-certificates/ca.crt
