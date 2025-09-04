@@ -1,9 +1,10 @@
 import asyncio
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from collections import deque, defaultdict
 from loguru import logger
-# import websockets # Removed
+import numpy as np # Added
 import pandas as pd
 import pandas_ta as ta
 from arango import ArangoClient
@@ -13,6 +14,199 @@ from app import config
 from app.telemetry import TelemetryProducer
 from app.metrics import indicators_calculated_total, documents_saved_total, errors_total
 
+# --- Custom indicator functions from user's example ---
+def ema(series, span):
+    return series.ewm(span=span, adjust=False).mean()
+
+def rsi(series, period=14):
+    delta = series.diff()
+    up = np.where(delta > 0, delta, 0.0)
+    down = np.where(delta < 0, -delta, 0.0)
+    roll_up = pd.Series(up, index=series.index).rolling(period).mean()
+    roll_down = pd.Series(down, index=series.index).rolling(period).mean()
+    rs = roll_up / (roll_down.replace(0, np.nan))
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def atr(high, low, close, period=14):
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs()
+    ], axis=1).max(axis=1)
+    return tr.rolling(period).mean()
+
+def bollinger(close, period=20, num_std=2):
+    ma = close.rolling(period).mean()
+    std = close.rolling(period).std(ddof=0)
+    upper = ma + num_std * std
+    lower = ma - num_std * std
+    return ma, upper, lower
+
+def vwap_candle(high, low, close, volume): # Renamed to avoid conflict with _calculate_vwap
+    tp = (high + low + close) / 3.0
+    cum_pv = (tp * volume).cumsum()
+    cum_v = volume.cumsum()
+    return cum_pv / cum_v
+
+def floor_ts(ts_ms: int, rule: str) -> int:
+    """Округление timestamp (мс) вниз к началу интервала."""
+    dt = datetime.fromtimestamp(ts_ms/1000, tz=timezone.utc)
+    if rule.endswith("ms"):
+        step = int(rule[:-2])
+        base_ms = (ts_ms // step) * step
+        return base_ms
+    if rule.endswith("s"):
+        step = int(rule[:-1])
+        base = dt.replace(microsecond=0)
+        base -= timedelta(seconds=base.second % step)
+        return int(base.timestamp() * 1000)
+    if rule in ("1min","1m"):
+        base = dt.replace(second=0, microsecond=0)
+        return int(base.timestamp() * 1000)
+    # простая поддержка 5m, 15m и т.д.
+    if rule.endswith("m"):
+        step = int(rule[:-1])
+        base = dt.replace(second=0, microsecond=0)
+        minute = (base.minute // step) * step
+        base = base.replace(minute=minute)
+        return int(base.timestamp() * 1000)
+    raise ValueError(f"Unsupported rule: {rule}")
+
+class CandleAgg:
+    """Агрегирует входящие события в OHLCV по времени."""
+    def __init__(self, interval_rule: str, window_size: int):
+        self.rule = interval_rule
+        self.window_size = window_size
+        self.candles = deque(maxlen=window_size)  # хранит готовые свечи (dict)
+        self._buckets = defaultdict(lambda: {
+            "open": None, "high": -np.inf, "low": np.inf, "close": None,
+            "volume": 0.0, "quote_volume": 0.0,
+            "first_ts": None, "last_ts": None
+        })
+        self._tob_cache = {}  # последний top-of-book по бакету
+
+    def on_trade(self, ts_ms: int, price: float, qty: float):
+        key = floor_ts(ts_ms, self.rule)
+        b = self._buckets[key]
+        if b["open"] is None:
+            b["open"] = price
+            b["first_ts"] = ts_ms
+        b["high"] = max(b["high"], price)
+        b["low"] = min(b["low"], price)
+        b["close"] = price
+        b["volume"] += qty
+        b["quote_volume"] += qty * price
+        b["last_ts"] = ts_ms
+
+    def on_tob(self, ts_ms: int, best_bid: float, best_ask: float):
+        key = floor_ts(ts_ms, self.rule)
+        self._tob_cache[key] = (best_bid, best_ask)
+        # если нет трейдов в этом бакете — можно заполнять суррогат по mid
+        b = self._buckets[key]
+        if b["open"] is None:
+            mid = (best_bid + best_ask) / 2.0
+            b["open"] = b["high"] = b["low"] = b["close"] = mid
+            b["first_ts"] = ts_ms
+            b["last_ts"] = ts_ms
+
+    def _finalize_bucket(self, key: int):
+        b = self._buckets.pop(key, None)
+        if not b:
+            return None
+        # если high/low остались inf/-inf, значит не было ни трейдов, ни mid:
+        if b["open"] is None:
+            return None
+        if b["high"] == -np.inf or b["low"] == np.inf:
+            # укомплектуем константой (open=high=low=close)
+            v = b["open"]
+            b["high"] = b["low"] = b["close"] = v
+        return {
+            "ts": key,
+            "open": b["open"],
+            "high": b["high"],
+            "low": b["low"],
+            "close": b["close"],
+            "volume": b["volume"],
+            "quote_volume": b["quote_volume"],
+            "first_ts": b["first_ts"],
+            "last_ts": b["last_ts"],
+        }
+
+    def flush_ready(self, now_ms: int):
+        """Достаём завершённые свечи (все бакеты, чьё окно полностью закончилось)."""
+        # бакет текущего интервала ещё НЕ закрыт
+        current_key = floor_ts(now_ms, self.rule)
+        ready_keys = [k for k in list(self._buckets.keys()) if k < current_key]
+        ready_keys.sort()
+        out = []
+        for k in ready_keys:
+            c = self._finalize_bucket(k)
+            if c:
+                self.candles.append(c)
+                out.append(c)
+        return out
+
+def compute_indicators(candles_deque: deque, indicators_config: list): # Modified to accept indicators_config
+    """candles -> pandas DF -> индикаторы по последним 40."""
+    df = pd.DataFrame(list(candles_deque))
+    if df.empty:
+        return None
+    df = df.sort_values("ts")
+    
+    # Ensure numeric types
+    for col in ["open", "high", "low", "close", "volume", "quote_volume"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    close = df["close"]
+    high  = df["high"]
+    low   = df["low"]
+    vol   = df.get("volume", pd.Series(np.nan, index=df.index))
+
+    calculated_indicators = {}
+    for indicator_config in indicators_config:
+        if indicator_config.get("enabled", False):
+            name = indicator_config["name"].lower()
+            params = indicator_config.get("params", {})
+            try:
+                # Dynamically call custom indicator functions or pandas_ta
+                if name == "ema":
+                    indicator_result = ema(close, **params)
+                elif name == "rsi":
+                    indicator_result = rsi(close, **params)
+                elif name == "atr":
+                    indicator_result = atr(high, low, close, **params)
+                elif name == "bollinger": # Assuming bollinger is BBANDS
+                    ma, upper, lower = bollinger(close, **params)
+                    calculated_indicators[f"bb_ma{params.get('period',20)}"] = ma.iloc[-1]
+                    calculated_indicators[f"bb_up{params.get('period',20)}"] = upper.iloc[-1]
+                    calculated_indicators[f"bb_lo{params.get('period',20)}"] = lower.iloc[-1]
+                    continue # Skip common processing for bollinger
+                elif name == "vwap": # Assuming vwap is VWAP
+                    indicator_result = vwap_candle(high, low, close, vol.fillna(0))
+                else:
+                    # Try pandas_ta for other indicators
+                    indicator_func = getattr(ta, name)
+                    indicator_result = indicator_func(close, **params) # Most TA indicators use close price
+
+                # Extract the last value from Series or DataFrame
+                if isinstance(indicator_result, pd.Series):
+                    value = indicator_result.iloc[-1]
+                elif isinstance(indicator_result, pd.DataFrame):
+                    value = indicator_result.iloc[-1].to_dict()
+                else:
+                    value = indicator_result # Should not happen often
+
+                calculated_indicators[f"{name}_{'_'.join(map(str, params.values()))}"] = value
+                indicators_calculated_total.labels(name).inc()
+            except Exception as e:
+                logger.error(f"❌ Error calculating indicator {name}: {e}")
+                errors_total.inc()
+    return calculated_indicators
+
+
 class IndicatorCalculator:
     def __init__(self, telemetry: TelemetryProducer):
         self.telemetry = telemetry
@@ -21,17 +215,14 @@ class IndicatorCalculator:
         self.indicators_config = config.INDICATORS_CONFIG
         self.arango_db = None
         self.arango_collection = None
-        # self.websocket_uri = f"wss://stream.binance.com:9443/ws/{self.symbol.lower()}@depth" # Removed
-        self.data_buffer = [] # Buffer to store order book data for VWAP calculation
-        self.buffer_lock = asyncio.Lock()
-        self.last_calculation_time = 0
-        self.calculation_interval = 5 # Calculate every 5 seconds for now, can be configurable
-        self.kafka_consumer = None # New Kafka consumer instance
+        self.aggregator = CandleAgg(config.CANDLE_INTERVAL, config.CANDLE_WINDOW_SIZE) # New aggregator
+        self.last_flush_time = 0
+        self.flush_interval = 1 # Flush every 1 second, can be configurable
 
     async def _connect_arango(self):
         client = ArangoClient(hosts=config.ARANGO_URL)
         self.arango_db = client.db(
-            config.ARANGO_DB,
+            config.DB_COLLECTION,
             username=config.ARANGO_USER,
             password=config.ARANGO_PASSWORD,
         )
@@ -42,108 +233,54 @@ class IndicatorCalculator:
             self.arango_collection = self.arango_db.collection(self.db_collection_name)
         logger.info(f"Connected to ArangoDB collection: {self.db_collection_name}")
 
-    async def _calculate_vwap(self) -> float:
-        """Calculates Volume Weighted Average Price (VWAP) from the current order book buffer."""
-        async with self.buffer_lock:
-            if not self.data_buffer:
-                return 0.0
-
-            total_bid_price_volume = 0.0
-            total_bid_volume = 0.0
-            total_ask_price_volume = 0.0
-            total_ask_volume = 0.0
-
-            for entry in self.data_buffer:
-                bids = entry.get('b', [])
-                asks = entry.get('a', [])
-
-                for bid_price, bid_qty in bids:
-                    bid_price = float(bid_price)
-                    bid_qty = float(bid_qty)
-                    total_bid_price_volume += bid_price * bid_qty
-                    total_bid_volume += bid_qty
-
-                for ask_price, ask_qty in asks:
-                    ask_price = float(ask_price)
-                    ask_qty = float(ask_qty)
-                    total_ask_price_volume += ask_price * ask_qty
-                    total_ask_volume += ask_qty
-            
-            # Simple mid-price VWAP for now, can be refined
-            if total_bid_volume > 0 and total_ask_volume > 0:
-                vwap_bid = total_bid_price_volume / total_bid_volume
-                vwap_ask = total_ask_price_volume / total_ask_volume
-                return (vwap_bid + vwap_ask) / 2
-            elif total_bid_volume > 0:
-                return total_bid_price_volume / total_bid_volume
-            elif total_ask_volume > 0:
-                return total_ask_price_volume / total_ask_volume
-            else:
-                return 0.0
-
     async def _process_kafka_message(self, message: dict):
-        """Processes a single Kafka message, adding it to the buffer."""
-        async with self.buffer_lock:
-            self.data_buffer.append(message)
-            # Optionally, limit buffer size to avoid excessive memory usage
-            # if len(self.data_buffer) > 100:
-            #     self.data_buffer.pop(0)
+        """Processes a single Kafka message, feeding it to the aggregator."""
+        logger.debug(f"Received Kafka message: {message}")
+        # Assuming message is a trade or TOB update
+        if "price" in message and "qty" in message: # It's a trade
+            self.aggregator.on_trade(int(message["ts"]), float(message["price"]), float(message["qty"]))
+            logger.debug(f"Processed trade: {message.get('ts')}")
+        elif "best_bid" in message and "best_ask" in message: # It's TOB
+            self.aggregator.on_tob(int(message["ts"]), float(message["best_bid"]), float(message["best_ask"]))
+            logger.debug(f"Processed TOB: {message.get('ts')}")
+        else:
+            logger.warning(f"Unknown message format: {message}")
+            errors_total.inc()
 
         current_time = time.time()
-        if current_time - self.last_calculation_time >= self.calculation_interval:
-            self.last_calculation_time = current_time
-            await self._perform_calculations_and_save()
+        if current_time - self.last_flush_time >= self.flush_interval:
+            self.last_flush_time = current_time
+            await self._flush_and_calculate()
 
-    async def _perform_calculations_and_save(self):
-        """Calculates indicators and saves to ArangoDB."""
-        vwap = await self._calculate_vwap()
-        if vwap == 0.0:
-            logger.warning("VWAP is 0, skipping indicator calculation.")
+    async def _flush_and_calculate(self):
+        """Flushes ready candles, calculates indicators, and saves to ArangoDB."""
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp()*1000)
+        ready_candles = self.aggregator.flush_ready(now_ms)
+        
+        if not ready_candles:
+            logger.debug("No new candles to process.")
             return
 
-        # For simplicity, we'll use VWAP as the 'close' price for indicators
-        # In a real scenario, you'd build OHLCV candles or use a series of VWAP values
-        # For pandas-ta, we need a pandas Series
-        price_series = pd.Series([vwap])
+        # The compute_indicators function now works on the deque directly
+        # and returns the calculated indicators for the last window
+        calculated_indicators_dict = compute_indicators(self.aggregator.candles, self.indicators_config)
 
-        calculated_indicators = {}
-        for indicator_config in self.indicators_config:
-            if indicator_config.get("enabled", False):
-                name = indicator_config["name"].lower()
-                params = indicator_config.get("params", {})
-                try:
-                    # Dynamically call pandas_ta functions
-                    indicator_func = getattr(ta, name)
-                    indicator_result = indicator_func(price_series, **params)
-
-                    # pandas_ta returns a Series or DataFrame. Extract the value.
-                    if isinstance(indicator_result, pd.Series):
-                        value = indicator_result.iloc[-1]
-                    elif isinstance(indicator_result, pd.DataFrame):
-                        value = indicator_result.iloc[-1].to_dict()
-                    else:
-                        value = indicator_result # Should not happen often
-
-                    calculated_indicators[f"{name}_{'_'.join(map(str, params.values()))}"] = value
-                    indicators_calculated_total.labels(name).inc()
-                except Exception as e:
-                    logger.error(f"❌ Error calculating indicator {name}: {e}")
-                    errors_total.inc()
-
-        if not calculated_indicators:
-            logger.info("No indicators calculated or enabled.")
+        if not calculated_indicators_dict:
+            logger.info("No indicators calculated or enabled for the current window.")
             return
 
-        timestamp_ms = int(time.time() * 1000)
+        # Use the timestamp of the last candle in the window for the document
+        last_candle_ts = self.aggregator.candles[-1]["ts"] if self.aggregator.candles else int(time.time() * 1000)
+        
         document = {
-            "_key": f"{self.symbol}_{timestamp_ms}",
+            "_key": f"{self.symbol}_{last_candle_ts}",
             "symbol": self.symbol,
-            "timestamp": timestamp_ms,
-            "indicators": calculated_indicators,
+            "timestamp": last_candle_ts,
+            "indicators": calculated_indicators_dict,
             "metadata": {
-                "source": "kafka_orderbook", # Changed source
+                "source": "kafka_trades_tob", # Updated source
                 "processed_at": datetime.now(timezone.utc).isoformat(),
-                "vwap": vwap # Include VWAP for context
+                # VWAP is now part of indicators if calculated
             }
         }
 
@@ -157,17 +294,15 @@ class IndicatorCalculator:
             errors_total.inc()
             await self.telemetry.send_status_update("error", f"Failed to save document: {e}")
         
-        # Clear buffer after calculation
-        async with self.buffer_lock:
-            self.data_buffer.clear()
+        # No need to clear data_buffer here, CandleAgg manages its own deque
 
     async def start(self):
         await self._connect_arango()
         logger.info(f"Starting Kafka consumer for topic: {config.KAFKA_TOPIC}")
         self.kafka_consumer = AIOKafkaConsumer(
-            config.KAFKA_TOPIC,
+            config.KAFKA_TOPIC, # Assuming this topic contains both trades and TOB, or just trades
             bootstrap_servers=config.KAFKA_BOOTSTRAP_SERVERS,
-            group_id=f"{config.QUEUE_ID}-orderbook-consumer", # New consumer group
+            group_id=f"{config.QUEUE_ID}-orderbook-consumer",
             enable_auto_commit=True,
             sasl_mechanism="SCRAM-SHA-512",
             security_protocol="SASL_SSL",

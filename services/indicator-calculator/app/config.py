@@ -30,6 +30,10 @@ SYMBOL: str = APP_CONFIG.get("symbol", os.getenv("SYMBOL", "BTCUSDT"))
 DB_COLLECTION: str = APP_CONFIG.get("db_collection", os.getenv("DB_COLLECTION", "technical_indicators_stream"))
 INDICATORS_CONFIG: list = APP_CONFIG.get("indicators", [])
 
+# Candle Aggregation Settings
+CANDLE_INTERVAL: str = os.getenv("CANDLE_INTERVAL", "1s") # e.g., "1s", "5s", "1m"
+CANDLE_WINDOW_SIZE: int = int(os.getenv("CANDLE_WINDOW_SIZE", "40")) # Number of candles to keep for indicator calculation
+
 # ───────────────────────────────────────────────
 # Kafka общие параметры
 # ───────────────────────────────────────────────
