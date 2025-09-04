@@ -145,8 +145,11 @@ class CandleAgg:
         """Достаём завершённые свечи (все бакеты, чьё окно полностью закончилось)."""
         # бакет текущего интервала ещё НЕ закрыт
         current_key = floor_ts(now_ms, self.rule)
+        logger.debug(f"FlushReady: now_ms={now_ms}, rule={self.rule}, current_key={current_key}")
+        logger.debug(f"FlushReady: _buckets keys={list(self._buckets.keys())}")
         ready_keys = [k for k in list(self._buckets.keys()) if k < current_key]
         ready_keys.sort()
+        logger.debug(f"FlushReady: ready_keys={ready_keys}")
         out = []
         for k in ready_keys:
             c = self._finalize_bucket(k)
