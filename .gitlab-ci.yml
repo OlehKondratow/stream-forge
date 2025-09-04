@@ -17,6 +17,7 @@ include:
   - local: 'services/arango-graph-prep/.gitlab-ci.yml'
   - local: 'services/arango-orderbook/.gitlab-ci.yml'
   - local: 'services/arango-trades/.gitlab-ci.yml'
+  - local: 'services/indicator-calculator/.gitlab-ci.yml'
   - local: 'services/dummy-service/.gitlab-ci.yml'
   - local: 'services/gnn-trainer/.gitlab-ci.yml'
   - local: 'services/graph_build/.gitlab-ci.yml'
