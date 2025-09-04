@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock
 import pandas as pd
 import pandas_ta as ta
@@ -83,6 +84,8 @@ async def test_perform_calculations_and_save(mock_indicator_calculator):
     ]
     mock_indicator_calculator.arango_collection.insert = AsyncMock()
     mock_indicator_calculator.telemetry.send_status_update = AsyncMock()
+
+    await mock_indicator_calculator._perform_calculations_and_save()
 
     await mock_indicator_calculator._perform_calculations_and_save()
 
