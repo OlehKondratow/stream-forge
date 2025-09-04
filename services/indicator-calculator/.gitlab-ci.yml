@@ -22,6 +22,16 @@ integration-test-indicator-calculator:
   variables:
     SERVICE_NAME: indicator-calculator
     SERVICE_PATH: services/indicator-calculator
+    ARANGO_URL: http://abase-3.dmz.home:8529
+  before_script:
+    # Ensure curl is available for health checks and install dependencies
+    - apt-get update && apt-get install -y curl
+    - pip install -r $CI_PROJECT_DIR/$SERVICE_PATH/requirements.txt
+    - pip install -r $CI_PROJECT_DIR/$SERVICE_PATH/requirements-test.txt
+    - echo "--- INSTALLED PACKAGES ---" && pip list && echo "------------------------"
+    # Start the service in the background from the correct directory
+    - (cd $CI_PROJECT_DIR/$SERVICE_PATH && python -m app.main --noop &)
+    - echo "NOOP mode, skipping health check."
   when: manual # Make it manual for now, user can change later
 
 test-indicator-calculator:
