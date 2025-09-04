@@ -83,7 +83,8 @@ class CandleAgg:
         self._buckets = defaultdict(lambda: {
             "open": None, "high": -np.inf, "low": np.inf, "close": None,
             "volume": 0.0, "quote_volume": 0.0,
-            "first_ts": None, "last_ts": None
+            "first_ts": None, "last_ts": None,
+            "price_volume_distribution": defaultdict(float) # New field
         })
         self._tob_cache = {}  # последний top-of-book по бакету
 
@@ -99,6 +100,11 @@ class CandleAgg:
         b["volume"] += qty
         b["quote_volume"] += qty * price
         b["last_ts"] = ts_ms
+        
+        # Accumulate volume for price levels
+        # Round price to the nearest VOLUME_PROFILE_PRICE_STEP
+        rounded_price = round(price / config.VOLUME_PROFILE_PRICE_STEP) * config.VOLUME_PROFILE_PRICE_STEP
+        b["price_volume_distribution"][rounded_price] += qty
 
     def on_tob(self, ts_ms: int, best_bid: float, best_ask: float):
         key = floor_ts(ts_ms, self.rule)
@@ -132,6 +138,7 @@ class CandleAgg:
             "quote_volume": b["quote_volume"],
             "first_ts": b["first_ts"],
             "last_ts": b["last_ts"],
+            "price_volume_distribution": dict(b["price_volume_distribution"]) # Convert defaultdict to dict
         }
 
     def flush_ready(self, now_ms: int):
@@ -291,6 +298,7 @@ class IndicatorCalculator:
             "symbol": self.symbol,
             "timestamp": last_candle_ts,
             "indicators": calculated_indicators_dict,
+            "candle_data": self.aggregator.candles[-1],
             "metadata": {
                 "source": "kafka_trades_tob", # Updated source
                 "processed_at": datetime.now(timezone.utc).isoformat(),

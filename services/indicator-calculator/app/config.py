@@ -33,6 +33,7 @@ INDICATORS_CONFIG: list = APP_CONFIG.get("indicators", [])
 # Candle Aggregation Settings
 CANDLE_INTERVAL: str = os.getenv("CANDLE_INTERVAL", "5m") # e.g., "1s", "5s", "1m"
 CANDLE_WINDOW_SIZE: int = int(os.getenv("CANDLE_WINDOW_SIZE", "40")) # Number of candles to keep for indicator calculation
+VOLUME_PROFILE_PRICE_STEP: float = float(os.getenv("VOLUME_PROFILE_PRICE_STEP", "0.0001")) # Price step for volume profile
 
 # ───────────────────────────────────────────────
 # Kafka общие параметры
