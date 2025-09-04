@@ -271,6 +271,7 @@ class IndicatorCalculator:
     async def _flush_and_calculate(self):
         """Flushes ready candles, calculates indicators, and saves to ArangoDB."""
         now_ms = int(datetime.now(tz=timezone.utc).timestamp()*1000)
+        logger.debug(f"Flush: now_ms={now_ms}")
         ready_candles = self.aggregator.flush_ready(now_ms)
         
         if not ready_candles:
@@ -298,7 +299,6 @@ class IndicatorCalculator:
             "symbol": self.symbol,
             "timestamp": last_candle_ts,
             "indicators": calculated_indicators_dict,
-            "candle_data": self.aggregator.candles[-1],
             "metadata": {
                 "source": "kafka_trades_tob", # Updated source
                 "processed_at": datetime.now(timezone.utc).isoformat(),
