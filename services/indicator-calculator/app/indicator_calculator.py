@@ -240,9 +240,14 @@ class IndicatorCalculator:
         if "price" in message and "qty" in message: # It's a trade
             self.aggregator.on_trade(int(message["ts"]), float(message["price"]), float(message["qty"]))
             logger.debug(f"Processed trade: {message.get('ts')}")
-        elif "best_bid" in message and "best_ask" in message: # It's TOB
-            self.aggregator.on_tob(int(message["ts"]), float(message["best_bid"]), float(message["best_ask"]))
-            logger.debug(f"Processed TOB: {message.get('ts')}")
+        elif "bids" in message and "asks" in message: # It's an order book update
+            if message["bids"] and message["asks"]:
+                best_bid = float(message["bids"][0][0])
+                best_ask = float(message["asks"][0][0])
+                self.aggregator.on_tob(int(message["ts"]), best_bid, best_ask)
+                logger.debug(f"Processed Order Book TOB: {message.get('ts')}")
+            else:
+                logger.debug(f"Received empty bids or asks in order book update: {message}")
         else:
             logger.warning(f"Unknown message format: {message}")
             errors_total.inc()
