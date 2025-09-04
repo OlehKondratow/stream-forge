@@ -8,6 +8,7 @@ from aiokafka import AIOKafkaConsumer # Import AIOKafkaConsumer
 
 # Mock config and telemetry for testing
 class MockConfig:
+    QUEUE_ID = "test-queue-id" # Added
     SYMBOL = "TESTUSDT"
     DB_COLLECTION = "test_indicators"
     INDICATORS_CONFIG = [
