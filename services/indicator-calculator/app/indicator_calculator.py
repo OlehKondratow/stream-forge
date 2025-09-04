@@ -218,6 +218,7 @@ class IndicatorCalculator:
         self.aggregator = CandleAgg(config.CANDLE_INTERVAL, config.CANDLE_WINDOW_SIZE) # New aggregator
         self.last_flush_time = 0
         self.flush_interval = 1 # Flush every 1 second, can be configurable
+        self.last_saved_ts = 0
 
     async def _connect_arango(self):
         client = ArangoClient(hosts=config.ARANGO_URL)
@@ -269,6 +270,12 @@ class IndicatorCalculator:
             logger.debug("No new candles to process.")
             return
 
+        last_candle_ts = self.aggregator.candles[-1]["ts"] if self.aggregator.candles else None
+
+        if last_candle_ts is None or last_candle_ts == self.last_saved_ts:
+            logger.debug(f"Skipping save: no new candles or candle with timestamp {last_candle_ts} already processed.")
+            return
+
         # The compute_indicators function now works on the deque directly
         # and returns the calculated indicators for the last window
         calculated_indicators_dict = compute_indicators(self.aggregator.candles, self.indicators_config)
@@ -278,7 +285,6 @@ class IndicatorCalculator:
             return
 
         # Use the timestamp of the last candle in the window for the document
-        last_candle_ts = self.aggregator.candles[-1]["ts"] if self.aggregator.candles else int(time.time() * 1000)
         
         document = {
             "_key": f"{self.symbol}_{last_candle_ts}",
@@ -297,6 +303,7 @@ class IndicatorCalculator:
             documents_saved_total.inc()
             logger.info(f"✅ Документ сохранен в ArangoDB: {document['_key']}")
             await self.telemetry.send_status_update("processing", f"Saved document {document['_key']}")
+            self.last_saved_ts = last_candle_ts # Update last saved timestamp
         except Exception as e:
             logger.error(f"❌ Ошибка сохранения документа в ArangoDB: {e}")
             errors_total.inc()

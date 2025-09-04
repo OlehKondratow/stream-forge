@@ -6,7 +6,7 @@
       "name": "RSI",
       "enabled": true,
       "params": {
-        "length": 14
+        "period": 14
       }
     },
     {
