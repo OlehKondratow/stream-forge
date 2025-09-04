@@ -90,6 +90,7 @@ class CandleAgg:
 
     def on_trade(self, ts_ms: int, price: float, qty: float):
         key = floor_ts(ts_ms, self.rule)
+        logger.debug(f"OnTrade: ts_ms={ts_ms}, key={key}")
         b = self._buckets[key]
         if b["open"] is None:
             b["open"] = price
@@ -108,6 +109,7 @@ class CandleAgg:
 
     def on_tob(self, ts_ms: int, best_bid: float, best_ask: float):
         key = floor_ts(ts_ms, self.rule)
+        logger.debug(f"OnTob: ts_ms={ts_ms}, key={key}")
         self._tob_cache[key] = (best_bid, best_ask)
         # если нет трейдов в этом бакете — можно заполнять суррогат по mid
         b = self._buckets[key]
@@ -121,17 +123,41 @@ class CandleAgg:
         b = self._buckets.pop(key, None)
         if not b:
             return None
-        # если high/low остались inf/-inf, значит не было ни трейдов, ни mid:
-        if b["open"] is None:
-            return None
-        if b["high"] == -np.inf or b["low"] == np.inf:
-            # укомплектуем константой (open=high=low=close)
-            v = b["open"]
-            b["high"] = b["low"] = b["close"] = v
+
+        # Ensure all numeric fields are actual numbers, not inf or None
+        open_val = b["open"] if b["open"] is not None and np.isfinite(b["open"]) else 0.0
+        high_val = b["high"] if b["high"] is not None and np.isfinite(b["high"]) else open_val
+        low_val = b["low"] if b["low"] is not None and np.isfinite(b["low"]) else open_val
+        close_val = b["close"] if b["close"] is not None and np.isfinite(b["close"]) else open_val
+        volume_val = b["volume"] if b["volume"] is not None and np.isfinite(b["volume"]) else 0.0
+        quote_volume_val = b["quote_volume"] if b["quote_volume"] is not None and np.isfinite(b["quote_volume"]) else 0.0
+
+        # If high/low are still inf/-inf after initial processing, set them to open_val
+        if not np.isfinite(high_val) or high_val < low_val: # Check for inf and also if high < low
+            high_val = open_val
+        if not np.isfinite(low_val) or low_val > high_val: # Check for inf and also if low > high
+            low_val = open_val
+        
+        # Final check to ensure high >= low
+        if high_val < low_val:
+            high_val = low_val = open_val # Fallback if something went wrong
+
+        # Handle first_ts and last_ts which can be None if no trades/TOB
+        first_ts_val = b["first_ts"] if b["first_ts"] is not None else key
+        last_ts_val = b["last_ts"] if b["last_ts"] is not None else key
+
         return {
             "ts": key,
-            "open": b["open"],
-            "high": b["high"],
+            "open": open_val,
+            "high": high_val,
+            "low": low_val,
+            "close": close_val,
+            "volume": volume_val,
+            "quote_volume": quote_volume_val,
+            "first_ts": first_ts_val,
+            "last_ts": last_ts_val,
+            "price_volume_distribution": dict(b["price_volume_distribution"])
+        }"high"],
             "low": b["low"],
             "close": b["close"],
             "volume": b["volume"],
