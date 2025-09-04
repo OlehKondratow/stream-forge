@@ -161,8 +161,7 @@ class CandleAgg:
             "quote_volume": quote_volume_val,
             "first_ts": first_ts_val,
             "last_ts": last_ts_val,
-            "price_volume_distribution": {str(k): v for k, v in b["price_volume_distribution"].items()}
-        }
+            }
 
     def flush_ready(self, now_ms: int):
         """Достаём завершённые свечи (все бакеты, чьё окно полностью закончилось)."""

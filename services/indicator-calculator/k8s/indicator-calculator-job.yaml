@@ -59,7 +59,7 @@ spec:
             - name: TELEMETRY_TOPIC
               value: "queue-events"
             - name: CANDLE_INTERVAL
-              value: "5m"
+              value: "1m"
             - name: ARANGO_URL
               value: "http://abase-3.dmz.home:8529"
             - name: ARANGO_DB
