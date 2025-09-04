@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+loguru
+prometheus_client
+aiokafka
+
+python-arango
+aioarango
+pandas-ta
+pandas
+numpy
+python-dotenv
+uvloop
+requests-toolbelt>=1.0.0
