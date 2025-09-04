@@ -23,7 +23,7 @@ spec:
             - name: QUEUE_ID
               value: "indicator-calculator-test"
             - name: SYMBOL
-              value: "BTCUSDT"
+              value: "PIXELUSDT"
             - name: DB_COLLECTION
               value: "technical_indicators_stream"
             - name: KAFKA_BOOTSTRAP_SERVERS

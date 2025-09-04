@@ -7,7 +7,7 @@ from loguru import logger
 import numpy as np # Added
 import pandas as pd
 import pandas_ta as ta
-from arango import ArangoClient
+from arango import ArangoClient, AioArangoClient
 from aiokafka import AIOKafkaConsumer
 
 from app import config
@@ -161,7 +161,8 @@ class CandleAgg:
             "quote_volume": quote_volume_val,
             "first_ts": first_ts_val,
             "last_ts": last_ts_val,
-            }
+            "price_volume_distribution": dict(b["price_volume_distribution"]) if b["price_volume_distribution"] else None
+        }
 
     def flush_ready(self, now_ms: int):
         """Достаём завершённые свечи (все бакеты, чьё окно полностью закончилось)."""
@@ -253,7 +254,7 @@ class IndicatorCalculator:
         self.last_saved_ts = 0
 
     async def _connect_arango(self):
-        client = ArangoClient(hosts=config.ARANGO_URL)
+        client = AioArangoClient(hosts=config.ARANGO_URL)
         self.arango_db = client.db(
             config.ARANGO_DB,
             username=config.ARANGO_USER,
