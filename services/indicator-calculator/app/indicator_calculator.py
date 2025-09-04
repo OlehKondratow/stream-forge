@@ -238,9 +238,7 @@ class IndicatorCalculator:
         logger.debug(f"Received Kafka message: {message}")
         # Assuming message is a trade or TOB update
         if "price" in message and "qty" in message: # It's a trade
-            self.aggregator.on_trade(int(message["ts"]), float(message["price"]), float(message["qty"]))
-            logger.debug(f"Processed trade: {message.get('ts')}")
-        self.aggregator.on_trade(int(message["timestamp"]), float(message["price"]), float(message["qty"]))
+            self.aggregator.on_trade(int(message["timestamp"]), float(message["price"]), float(message["qty"]))
             logger.debug(f"Processed trade: {message.get('timestamp')}")
         elif "best_bid" in message and "best_ask" in message: # It's TOB
             self.aggregator.on_tob(int(message["timestamp"]), float(message["best_bid"]), float(message["best_ask"]))
