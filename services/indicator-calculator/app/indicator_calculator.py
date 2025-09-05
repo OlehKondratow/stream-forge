@@ -90,7 +90,7 @@ class CandleAgg:
 
     def on_trade(self, ts_ms: int, price: float, qty: float):
         key = floor_ts(ts_ms, self.rule)
-        logger.debug(f"OnTrade: ts_ms={ts_ms}, key={key}")
+        logger.debug(f"OnTrade: ts_ms={ts_ms}, rule={self.rule}, key={key}")
         b = self._buckets[key]
         if b["open"] is None:
             b["open"] = price
@@ -109,7 +109,7 @@ class CandleAgg:
 
     def on_tob(self, ts_ms: int, best_bid: float, best_ask: float):
         key = floor_ts(ts_ms, self.rule)
-        logger.debug(f"OnTob: ts_ms={ts_ms}, key={key}")
+        logger.debug(f"OnTob: ts_ms={ts_ms}, rule={self.rule}, key={key}")
         self._tob_cache[key] = (best_bid, best_ask)
         # если нет трейдов в этом бакете — можно заполнять суррогат по mid
         b = self._buckets[key]
@@ -146,7 +146,7 @@ class CandleAgg:
         first_ts_val = b["first_ts"] if b["first_ts"] is not None else key
         last_ts_val = b["last_ts"] if b["last_ts"] is not None else key
 
-        logger.debug(f"Finalizing bucket for key={key}")
+        logger.debug(f"Finalizing bucket for key={key}, rule={self.rule}")
         logger.debug(f"  open={open_val}, high={high_val}, low={low_val}, close={close_val}")
         logger.debug(f"  volume={volume_val}, quote_volume={quote_volume_val}")
         logger.debug(f"  first_ts={first_ts_val}, last_ts={last_ts_val}")
@@ -297,7 +297,7 @@ class IndicatorCalculator:
     async def _flush_and_calculate(self):
         """Flushes ready candles, calculates indicators, and saves to ArangoDB."""
         now_ms = int(datetime.now(tz=timezone.utc).timestamp()*1000)
-        logger.debug(f"Flush: now_ms={now_ms}")
+        logger.debug(f"Flush: now_ms={now_ms}, rule={config.CANDLE_INTERVAL}, window_size={config.CANDLE_WINDOW_SIZE}")
         ready_candles = self.aggregator.flush_ready(now_ms)
         
         if not ready_candles:
@@ -313,6 +313,7 @@ class IndicatorCalculator:
         # The compute_indicators function now works on the deque directly
         # and returns the calculated indicators for the last window
         calculated_indicators_dict = compute_indicators(self.aggregator.candles, self.indicators_config)
+        logger.debug(f"Calculated indicators: {calculated_indicators_dict}")
 
         if not calculated_indicators_dict:
             logger.info("No indicators calculated or enabled for the current window.")

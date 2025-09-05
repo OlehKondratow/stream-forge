@@ -24,6 +24,12 @@ spec:
               value: "indicator-calculator-test"
             - name: SYMBOL
               value: "PIXELUSDT"
+            - name: INDICATORS_CONFIG
+              value: |
+                [
+                  {"name": "RSI", "enabled": true, "params": {"period": 14}},
+                  {"name": "MACD", "enabled": true, "params": {"fast": 12, "slow": 26, "signal": 9}}
+                ]
             - name: DB_COLLECTION
               value: "technical_indicators_stream"
             - name: KAFKA_BOOTSTRAP_SERVERS
