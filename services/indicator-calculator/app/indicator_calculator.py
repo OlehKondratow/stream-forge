@@ -315,6 +315,12 @@ class IndicatorCalculator:
         calculated_indicators_dict = compute_indicators(self.aggregator.candles, self.indicators_config)
         logger.debug(f"Calculated indicators: {calculated_indicators_dict}")
 
+        # Replace np.nan with None for ArangoDB compatibility
+        for key, value in calculated_indicators_dict.items():
+            if isinstance(value, float) and np.isnan(value):
+                calculated_indicators_dict[key] = None
+            # If value is None, it will be serialized as null in JSON, which is fine.
+
         if not calculated_indicators_dict:
             logger.info("No indicators calculated or enabled for the current window.")
             return
