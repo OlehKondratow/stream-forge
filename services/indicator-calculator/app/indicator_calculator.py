@@ -267,9 +267,11 @@ class IndicatorCalculator:
             self.arango_collection = self.arango_db.collection(self.db_collection_name)
         logger.info(f"Connected to ArangoDB collection: {self.db_collection_name}")
 
-    async def _process_kafka_message(self, message: dict):
+    async def _process_kafka_message(self, msg):
         """Processes a single Kafka message, feeding it to the aggregator."""
-        logger.debug(f"Received Kafka message: {message}")
+        message = json.loads(msg.value.decode("utf-8"))
+        logger.debug(f"Received Kafka message from topic {msg.topic}: {message}")
+
         if msg.topic == config.KAFKA_TOPIC_TRADES:
             # Process trade message
             self.aggregator.on_trade(int(message["trade_time"]), float(message["price"]), float(message["quantity"]))
@@ -359,7 +361,7 @@ class IndicatorCalculator:
 
     async def start(self):
         await self._connect_arango()
-        logger.info(f"Starting Kafka consumer for topic: {config.KAFKA_TOPIC}")
+        logger.info(f"Starting Kafka consumer for topics: {config.KAFKA_TOPICS_LIST}")
         self.kafka_consumer = AIOKafkaConsumer(
             *config.KAFKA_TOPICS_LIST, # Subscribe to all topics in the list
             bootstrap_servers=config.KAFKA_BOOTSTRAP_SERVERS,
@@ -373,7 +375,7 @@ class IndicatorCalculator:
             auto_offset_reset="latest"
         )
         await self.kafka_consumer.start()
-        logger.info(f"Kafka consumer connected to topic: {config.KAFKA_TOPIC}")
+        logger.info(f"Kafka consumer connected to topics: {config.KAFKA_TOPICS_LIST}")
 
         try:
             async for msg in self.kafka_consumer:
@@ -381,11 +383,7 @@ class IndicatorCalculator:
                     logger.debug("🕳️ Received empty message (tombstone), skipping.")
                     continue
                 try:
-                    data = json.loads(msg.value.decode("utf-8"))
-                    await self._process_kafka_message(data)
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to decode JSON from Kafka message: {msg.value}")
-                    errors_total.inc()
+                    await self._process_kafka_message(msg)
                 except Exception as e:
                     logger.error(f"Error processing Kafka message: {e}")
                     errors_total.inc()
