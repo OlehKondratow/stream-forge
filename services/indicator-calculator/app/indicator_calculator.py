@@ -335,7 +335,7 @@ class IndicatorCalculator:
         try:
             self.arango_collection.insert(document)
             documents_saved_total.inc()
-            logger.info(f"✅ Документ сохранен в ArangoDB: {document['_key']}")
+            logger.info(f"✅ Документ сохранен в ArangoDB: {json.dumps(document, ensure_ascii=False, indent=2)}")
             await self.telemetry.send_status_update("processing", f"Saved document {document['_key']}")
             self.last_saved_ts = last_candle_ts # Update last saved timestamp
         except Exception as e:

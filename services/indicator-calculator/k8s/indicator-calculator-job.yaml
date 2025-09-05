@@ -32,6 +32,8 @@ spec:
               value: "pixelusdt-orderbook" # Input topic for orderbook data
             - name: TELEMETRY_PRODUCER_ID
               value: "indicator-calculator-test-instance"
+            - name: LOGURU_LEVEL
+              value: "DEBUG"
             - name: KAFKA_USER_PRODUCER
               valueFrom:
                 secretKeyRef:
