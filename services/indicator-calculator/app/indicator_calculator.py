@@ -7,6 +7,7 @@ from loguru import logger
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
+from scipy.stats import zscore
 from arango import ArangoClient
 from aiokafka import AIOKafkaConsumer
 
@@ -44,14 +45,13 @@ def bollinger(close, period=20, num_std=2):
     lower = ma - num_std * std
     return ma, upper, lower
 
-def vwap_candle(high, low, close, volume): # Renamed to avoid conflict with _calculate_vwap
+def vwap_candle(high, low, close, volume):
     tp = (high + low + close) / 3.0
     cum_pv = (tp * volume).cumsum()
     cum_v = volume.cumsum()
     return cum_pv / cum_v
 
 def floor_ts(ts_ms: int, rule: str) -> int:
-    """Округление timestamp (мс) вниз к началу интервала."""
     dt = datetime.fromtimestamp(ts_ms/1000, tz=timezone.utc)
     if rule.endswith("ms"):
         step = int(rule[:-2])
@@ -65,7 +65,6 @@ def floor_ts(ts_ms: int, rule: str) -> int:
     if rule in ("1min","1m"):
         base = dt.replace(second=0, microsecond=0)
         return int(base.timestamp() * 1000)
-    # простая поддержка 5m, 15m и т.д.
     if rule.endswith("m"):
         step = int(rule[:-1])
         base = dt.replace(second=0, microsecond=0)
@@ -75,22 +74,20 @@ def floor_ts(ts_ms: int, rule: str) -> int:
     raise ValueError(f"Unsupported rule: {rule}")
 
 class CandleAgg:
-    """Агрегирует входящие события в OHLCV по времени."""
     def __init__(self, interval_rule: str, window_size: int):
         self.rule = interval_rule
         self.window_size = window_size
-        self.candles = deque(maxlen=window_size)  # хранит готовые свечи (dict)
+        self.candles = deque(maxlen=window_size)
         self._buckets = defaultdict(lambda: {
             "open": None, "high": -np.inf, "low": np.inf, "close": None,
             "volume": 0.0, "quote_volume": 0.0,
             "first_ts": None, "last_ts": None,
-            "price_volume_distribution": defaultdict(float) # New field
+            "price_volume_distribution": defaultdict(float)
         })
-        self._tob_cache = {}  # последний top-of-book по бакету
+        self._tob_cache = {}
 
     def on_trade(self, ts_ms: int, price: float, qty: float):
         key = floor_ts(ts_ms, self.rule)
-        logger.debug(f"OnTrade: ts_ms={ts_ms}, rule={self.rule}, key={key}")
         b = self._buckets[key]
         if b["open"] is None:
             b["open"] = price
@@ -101,17 +98,13 @@ class CandleAgg:
         b["volume"] += qty
         b["quote_volume"] += qty * price
         b["last_ts"] = ts_ms
-        
-        # Accumulate volume for price levels
-        # Round price to the nearest VOLUME_PROFILE_PRICE_STEP
-        rounded_price = round(price / config.VOLUME_PROFILE_PRICE_STEP) * config.VOLUME_PROFILE_PRICE_STEP
+        step = config.VOLUME_PROFILE_PRICE_STEP
+        rounded_price = round(round(price / step) * step, 8)
         b["price_volume_distribution"][rounded_price] += qty
 
     def on_tob(self, ts_ms: int, best_bid: float, best_ask: float):
         key = floor_ts(ts_ms, self.rule)
-        logger.debug(f"OnTob: ts_ms={ts_ms}, rule={self.rule}, key={key}")
         self._tob_cache[key] = (best_bid, best_ask)
-        # если нет трейдов в этом бакете — можно заполнять суррогат по mid
         b = self._buckets[key]
         if b["open"] is None:
             mid = (best_bid + best_ask) / 2.0
@@ -123,52 +116,30 @@ class CandleAgg:
         b = self._buckets.pop(key, None)
         if not b:
             return None
-
-        # Ensure all numeric fields are actual numbers, not inf or None
         open_val = b["open"] if b["open"] is not None and np.isfinite(b["open"]) else 0.0
         high_val = b["high"] if b["high"] is not None and np.isfinite(b["high"]) else open_val
         low_val = b["low"] if b["low"] is not None and np.isfinite(b["low"]) else open_val
         close_val = b["close"] if b["close"] is not None and np.isfinite(b["close"]) else open_val
         volume_val = b["volume"] if b["volume"] is not None and np.isfinite(b["volume"]) else 0.0
         quote_volume_val = b["quote_volume"] if b["quote_volume"] is not None and np.isfinite(b["quote_volume"]) else 0.0
-
         if not np.isfinite(high_val) or high_val < low_val:
             high_val = open_val
         if not np.isfinite(low_val) or low_val > high_val:
             low_val = open_val
-        
         if high_val < low_val:
             high_val = low_val = open_val
-
         first_ts_val = b["first_ts"] if b["first_ts"] is not None else key
         last_ts_val = b["last_ts"] if b["last_ts"] is not None else key
-
-        logger.debug(f"Finalizing bucket for key={key}, rule={self.rule}")
-        logger.debug(f"  open={open_val}, high={high_val}, low={low_val}, close={close_val}")
-        logger.debug(f"  volume={volume_val}, quote_volume={quote_volume_val}")
-        logger.debug(f"  first_ts={first_ts_val}, last_ts={last_ts_val}")
-        logger.debug(f"  price_volume_distribution={dict(b['price_volume_distribution'])}")
         return {
-            "ts": key,
-            "open": open_val,
-            "high": high_val,
-            "low": low_val,
-            "close": close_val,
-            "volume": volume_val,
-            "quote_volume": quote_volume_val,
-            "first_ts": first_ts_val,
+            "ts": key, "open": open_val, "high": high_val, "low": low_val, "close": close_val,
+            "volume": volume_val, "quote_volume": quote_volume_val, "first_ts": first_ts_val,
             "last_ts": last_ts_val,
             "price_volume_distribution": dict(b["price_volume_distribution"]) if b["price_volume_distribution"] else None
         }
 
     def flush_ready(self, now_ms: int):
-        """Достаём завершённые свечи (все бакеты, чьё окно полностью закончилось)."""
         current_key = floor_ts(now_ms, self.rule)
-        logger.debug(f"FlushReady: now_ms={now_ms}, rule={self.rule}, current_key={current_key}")
-        logger.debug(f"FlushReady: _buckets keys={list(self._buckets.keys())}")
-        ready_keys = [k for k in list(self._buckets.keys()) if k < current_key]
-        ready_keys.sort()
-        logger.debug(f"FlushReady: ready_keys={ready_keys}")
+        ready_keys = sorted([k for k in self._buckets if k < current_key])
         out = []
         for k in ready_keys:
             c = self._finalize_bucket(k)
@@ -177,62 +148,81 @@ class CandleAgg:
                 out.append(c)
         return out
 
-def compute_indicators(candles_deque: deque, indicators_config: list):
-    """candles -> pandas DF -> индикаторы по последним 40."""
+def compute_indicators(candles_deque: deque, indicators_config: list, rl_lookback: int):
     df = pd.DataFrame(list(candles_deque))
-    if df.empty:
-        return None
+    if df.empty or len(df) < 2:
+        return {}, {}
     df = df.sort_values("ts")
-    
     for col in ["open", "high", "low", "close", "volume", "quote_volume"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    close, high, low, vol = df["close"], df["high"], df["low"], df.get("volume", pd.Series(np.nan, index=df.index))
     
-    close = df["close"]
-    high  = df["high"]
-    low   = df["low"]
-    vol   = df.get("volume", pd.Series(np.nan, index=df.index))
+    indicators = {}
+    rl_state = {}
 
-    calculated_indicators = {}
+    # Prepare base RL features (normalized OHLCV)
+    if len(df) >= rl_lookback:
+        last_n_candles = df.iloc[-rl_lookback:]
+        last_close = last_n_candles['close'].iloc[-1]
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            # Normalize by last close price, volume by its own mean
+            norm_series = last_n_candles[col] / last_close if col != 'volume' else last_n_candles[col] / (last_n_candles[col].mean() + 1e-9)
+            rl_state[f'{col}_norm_hist'] = norm_series.tolist()
+
     for indicator_config in indicators_config:
-        if indicator_config.get("enabled", False):
-            name = indicator_config["name"].lower()
-            params = indicator_config.get("params", {})
-            try:
-                if name == "ema":
-                    indicator_result = ema(close, **params)
-                elif name == "rsi":
-                    indicator_result = rsi(close, **params)
-                elif name == "atr":
-                    indicator_result = atr(high, low, close, **params)
-                elif name == "bollinger":
-                    ma, upper, lower = bollinger(close, **params)
-                    calculated_indicators[f"bb_ma{params.get('period',20)}"] = ma.iloc[-1]
-                    calculated_indicators[f"bb_up{params.get('period',20)}"] = upper.iloc[-1]
-                    calculated_indicators[f"bb_lo{params.get('period',20)}"] = lower.iloc[-1]
-                    continue
-                elif name == "vwap":
-                    indicator_result = vwap_candle(high, low, close, vol.fillna(0))
-                else:
-                    indicator_func = getattr(ta, name)
-                    indicator_result = indicator_func(close, **params)
+        if not indicator_config.get("enabled", False):
+            continue
+        
+        name = indicator_config["name"].lower()
+        params = indicator_config.get("params", {})
+        full_name = f"{name}_{'_'.join(map(str, params.values()))}"
+        needs_normalization = indicator_config.get("normalize", False)
 
-                if isinstance(indicator_result, pd.Series):
-                    value = indicator_result.iloc[-1]
-                elif isinstance(indicator_result, pd.DataFrame):
-                    value = indicator_result.iloc[-1].to_dict()
-                else:
-                    value = indicator_result
+        try:
+            indicator_func = getattr(ta, name)
+            indicator_result = indicator_func(close=close, high=high, low=low, volume=vol, **params)
 
-                calculated_indicators[f"{name}_{'_'.join(map(str, params.values()))}"] = value
-                indicators_calculated_total.labels(name).inc()
-            except Exception as e:
-                logger.error(f"❌ Error calculating indicator {name}: {e}")
-                errors_total.inc()
-    return calculated_indicators
+            if indicator_result is None:
+                continue
+
+            if isinstance(indicator_result, pd.DataFrame):
+                for col in indicator_result.columns:
+                    series = indicator_result[col].dropna()
+                    if not series.empty:
+                        indicators[col] = series.iloc[-1]
+                        if len(series) >= rl_lookback:
+                            history = series.iloc[-rl_lookback:]
+                            if needs_normalization:
+                                history = pd.Series(zscore(history), index=history.index)
+                            rl_state[f'{col}_hist'] = history.tolist()
+            elif isinstance(indicator_result, pd.Series):
+                series = indicator_result.dropna()
+                if not series.empty:
+                    indicators[full_name] = series.iloc[-1]
+                    if len(series) >= rl_lookback:
+                        history = series.iloc[-rl_lookback:]
+                        if needs_normalization:
+                            history = pd.Series(zscore(history), index=history.index)
+                        rl_state[f'{full_name}_hist'] = history.tolist()
+            
+            indicators_calculated_total.labels(name).inc()
+
+        except Exception as e:
+            logger.error(f"❌ Error calculating indicator {name}: {e}")
+            errors_total.inc()
+            
+    # Clean up NaN/inf values
+    for key, value in indicators.items():
+        if isinstance(value, dict):
+            indicators[key] = {k: (None if pd.isna(v) else v) for k, v in value.items()}
+        elif pd.isna(value):
+            indicators[key] = None
+
+    return indicators, rl_state
 
 def get_message_timestamp(msg_value: dict, topic: str) -> int:
-    """Extracts timestamp from a deserialized message."""
     try:
         if topic == config.KAFKA_TOPIC_TRADES:
             return int(msg_value["trade_time"])
@@ -258,105 +248,55 @@ class IndicatorCalculator:
 
     async def _connect_arango(self):
         client = ArangoClient(hosts=config.ARANGO_URL)
-        self.arango_db = client.db(
-            config.ARANGO_DB,
-            username=config.ARANGO_USER,
-            password=config.ARANGO_PASSWORD,
-        )
+        self.arango_db = client.db(config.ARANGO_DB, username=config.ARANGO_USER, password=config.ARANGO_PASSWORD)
         if not self.arango_db.has_collection(self.db_collection_name):
-            logger.info(f"Collection '{self.db_collection_name}' not found, creating it.")
             self.arango_collection = self.arango_db.create_collection(self.db_collection_name)
         else:
             self.arango_collection = self.arango_db.collection(self.db_collection_name)
         logger.info(f"Connected to ArangoDB collection: {self.db_collection_name}")
 
     async def _process_kafka_message(self, msg):
-        """Processes a single Kafka message, feeding it to the aggregator."""
         message = json.loads(msg.value.decode("utf-8"))
-        logger.debug(f"Received Kafka message from topic {msg.topic}: {message}")
-
         if msg.topic == config.KAFKA_TOPIC_TRADES:
             self.aggregator.on_trade(int(message["trade_time"]), float(message["price"]), float(message["quantity"]))
-            logger.debug(f"Processed trade from topic {msg.topic}: {message.get('trade_time')}")
         elif msg.topic == config.KAFKA_TOPIC_ORDERBOOK:
             if "best_bid" in message and "best_ask" in message:
                 self.aggregator.on_tob(int(message["timestamp"]), float(message["best_bid"]), float(message["best_ask"]))
-                logger.debug(f"Processed TOB from topic {msg.topic}: {message.get('timestamp')}")
-            elif "bids" in message and "asks" in message:
-                if message["bids"] and message["asks"]:
-                    best_bid = float(message["bids"][0][0])
-                    best_ask = float(message["asks"][0][0])
-                    self.aggregator.on_tob(int(message["timestamp"]), best_bid, best_ask)
-                    logger.debug(f"Processed Order Book TOB from topic {msg.topic}: {message.get('timestamp')}")
-                else:
-                    logger.debug(f"Received empty bids or asks in order book update from topic {msg.topic}: {message}")
-            else:
-                logger.warning(f"Unknown order book message format from topic {msg.topic}: {message}")
-                errors_total.inc()
-        else:
-            logger.warning(f"Unknown message topic: {msg.topic} or format: {message}")
-            errors_total.inc()
-
+            elif "bids" in message and "asks" in message and message["bids"] and message["asks"]:
+                self.aggregator.on_tob(int(message["timestamp"]), float(message["bids"][0][0]), float(message["asks"][0][0]))
         current_time = time.time()
         if current_time - self.last_flush_time >= self.flush_interval:
             self.last_flush_time = current_time
             await self._flush_and_calculate()
 
     async def _flush_and_calculate(self):
-        """Flushes ready candles, calculates indicators, and saves to ArangoDB."""
         now_ms = int(datetime.now(tz=timezone.utc).timestamp()*1000)
-        logger.debug(f"Flush: now_ms={now_ms}, rule={config.CANDLE_INTERVAL}, window_size={config.CANDLE_WINDOW_SIZE}")
-        ready_candles = self.aggregator.flush_ready(now_ms)
-        
-        if not ready_candles:
-            logger.debug("No new candles to process.")
-            return
-
+        self.aggregator.flush_ready(now_ms)
         if not self.aggregator.candles:
             return
 
         last_candle = self.aggregator.candles[-1]
         last_candle_ts = last_candle["ts"]
-
         if last_candle_ts == self.last_saved_ts:
-            logger.debug(f"Skipping save: no new candles or candle with timestamp {last_candle_ts} already processed.")
             return
 
-        calculated_indicators_dict = compute_indicators(self.aggregator.candles, self.indicators_config)
-        logger.debug(f"Calculated indicators: {calculated_indicators_dict}")
-
-        if calculated_indicators_dict:
-            for key, value in calculated_indicators_dict.items():
-                if isinstance(value, float) and np.isnan(value):
-                    calculated_indicators_dict[key] = None
-        else:
-            calculated_indicators_dict = {}
-
+        indicators, rl_state = compute_indicators(self.aggregator.candles, self.indicators_config, config.RL_LOOKBACK_PERIOD)
 
         document = {
             "_key": f"{self.symbol}_{last_candle_ts}",
             "symbol": self.symbol,
             "timestamp": last_candle_ts,
-            "candle": {
-                "open": last_candle["open"],
-                "high": last_candle["high"],
-                "low": last_candle["low"],
-                "close": last_candle["close"],
-                "volume": last_candle["volume"],
-                "quote_volume": last_candle["quote_volume"]
-            },
-            "indicators": calculated_indicators_dict,
+            "candle": {"open": last_candle["open"], "high": last_candle["high"], "low": last_candle["low"], "close": last_candle["close"], "volume": last_candle["volume"], "quote_volume": last_candle["quote_volume"]},
+            "indicators": indicators,
+            "rl_state": rl_state,
             "volume_profile": last_candle.get("price_volume_distribution"),
-            "metadata": {
-                "source": "kafka_trades_tob",
-                "processed_at": datetime.now(timezone.utc).isoformat(),
-            }
+            "metadata": {"source": "kafka_trades_tob", "processed_at": datetime.now(timezone.utc).isoformat()}
         }
 
         try:
             self.arango_collection.insert(document, overwrite=True)
             documents_saved_total.inc()
-            logger.info(f"✅ Документ сохранен в ArangoDB: {json.dumps(document, ensure_ascii=False, indent=2)}")
+            logger.info(f"✅ Документ сохранен в ArangoDB: {last_candle_ts}")
             await self.telemetry.send_status_update("processing", f"Saved document {document['_key']}")
             self.last_saved_ts = last_candle_ts
         except Exception as e:
@@ -366,29 +306,18 @@ class IndicatorCalculator:
 
     async def start(self):
         await self._connect_arango()
-        
-        logger.info(f"Starting Kafka consumer for topics: {config.KAFKA_TOPICS_LIST}")
         group_id = f"{config.QUEUE_ID}-consumer-{int(time.time())}"
         self.kafka_consumer = AIOKafkaConsumer(
-            *config.KAFKA_TOPICS_LIST,
-            bootstrap_servers=config.KAFKA_BOOTSTRAP_SERVERS,
-            group_id=group_id,
-            enable_auto_commit=False,
-            sasl_mechanism="SCRAM-SHA-512",
-            security_protocol="SASL_SSL",
-            sasl_plain_username=config.KAFKA_USER_CONSUMER,
-            sasl_plain_password=config.KAFKA_PASSWORD_CONSUMER,
-            ssl_context=config.get_ssl_context(),
-            auto_offset_reset="earliest"
+            *config.KAFKA_TOPICS_LIST, bootstrap_servers=config.KAFKA_BOOTSTRAP_SERVERS, group_id=group_id,
+            enable_auto_commit=False, sasl_mechanism="SCRAM-SHA-512", security_protocol="SASL_SSL",
+            sasl_plain_username=config.KAFKA_USER_CONSUMER, sasl_plain_password=config.KAFKA_PASSWORD_CONSUMER,
+            ssl_context=config.get_ssl_context(), auto_offset_reset="earliest"
         )
         await self.kafka_consumer.start()
         logger.info(f"Kafka consumer connected to topics: {config.KAFKA_TOPICS_LIST} with group_id: {group_id}")
 
         first_timestamps = {topic: None for topic in config.KAFKA_TOPICS_LIST}
-        watermark = 0
-        synchronizing = True
-        message_buffer = []
-
+        watermark, synchronizing, message_buffer = 0, True, []
         logger.info("Synchronizing streams to find watermark...")
         
         try:
@@ -402,44 +331,32 @@ class IndicatorCalculator:
                             if ts > 0:
                                 first_timestamps[topic] = ts
                                 logger.info(f"Got first message from topic {topic} with timestamp {datetime.fromtimestamp(ts/1000, tz=timezone.utc)}")
-                        except (json.JSONDecodeError, KeyError):
-                            logger.warning(f"Could not parse first message from {topic} to get timestamp.")
+                        except (json.JSONDecodeError, KeyError): continue
 
                     if all(first_timestamps.values()):
-                        watermark = max(ts for ts in first_timestamps.values() if ts is not None)
+                        watermark = max(v for v in first_timestamps.values() if v is not None)
                         logger.info(f"🚀 Watermark established: {datetime.fromtimestamp(watermark/1000, tz=timezone.utc)}")
                         synchronizing = False
-                        
-                        logger.info(f"Processing {len(message_buffer)} buffered messages...")
                         message_buffer.sort(key=lambda m: get_message_timestamp(json.loads(m.value.decode('utf-8')), m.topic))
-                        
                         for buffered_msg in message_buffer:
                             try:
-                                msg_ts = get_message_timestamp(json.loads(buffered_msg.value.decode('utf-8')), buffered_msg.topic)
-                                if msg_ts >= watermark:
+                                if get_message_timestamp(json.loads(buffered_msg.value.decode('utf-8')), buffered_msg.topic) >= watermark:
                                     await self._process_kafka_message(buffered_msg)
-                            except (json.JSONDecodeError, KeyError):
-                                continue # Skip malformed messages in buffer
-                        
+                            except (json.JSONDecodeError, KeyError): continue
                         message_buffer = []
                         await self.kafka_consumer.commit()
                         logger.info("Initial buffer processed, switching to real-time.")
-
-                else: # Not synchronizing
+                else:
                     if not msg.value:
                         await self.kafka_consumer.commit()
                         continue
-                    
                     try:
-                        msg_ts = get_message_timestamp(json.loads(msg.value.decode('utf-8')), msg.topic)
-                        if msg_ts < watermark:
+                        if get_message_timestamp(json.loads(msg.value.decode('utf-8')), msg.topic) < watermark:
                             await self.kafka_consumer.commit()
                             continue
-
                         await self._process_kafka_message(msg)
                         await self.kafka_consumer.commit()
                     except (json.JSONDecodeError, KeyError):
-                        logger.warning(f"Skipping malformed message on topic {msg.topic}")
                         await self.kafka_consumer.commit()
                     except Exception as e:
                         logger.error(f"Error processing Kafka message: {e}", exc_info=True)
