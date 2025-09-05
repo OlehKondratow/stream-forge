@@ -270,23 +270,28 @@ class IndicatorCalculator:
     async def _process_kafka_message(self, message: dict):
         """Processes a single Kafka message, feeding it to the aggregator."""
         logger.debug(f"Received Kafka message: {message}")
-        # Assuming message is a trade or TOB update
-        if "price" in message and "qty" in message: # It's a trade
-            self.aggregator.on_trade(int(message["timestamp"]), float(message["price"]), float(message["qty"]))
-            logger.debug(f"Processed trade: {message.get('timestamp')}")
-        elif "best_bid" in message and "best_ask" in message: # It's TOB
-            self.aggregator.on_tob(int(message["timestamp"]), float(message["best_bid"]), float(message["best_ask"]))
-            logger.debug(f"Processed TOB: {message.get('timestamp')}")
-        elif "bids" in message and "asks" in message: # It's an order book update
-            if message["bids"] and message["asks"]:
-                best_bid = float(message["bids"][0][0])
-                best_ask = float(message["asks"][0][0])
-                self.aggregator.on_tob(int(message["timestamp"]), best_bid, best_ask)
-                logger.debug(f"Processed Order Book TOB: {message.get('timestamp')}")
+        if msg.topic == config.KAFKA_TOPIC_TRADES:
+            # Process trade message
+            self.aggregator.on_trade(int(message["trade_time"]), float(message["price"]), float(message["quantity"]))
+            logger.debug(f"Processed trade from topic {msg.topic}: {message.get('trade_time')}")
+        elif msg.topic == config.KAFKA_TOPIC_ORDERBOOK:
+            # Process order book message
+            if "best_bid" in message and "best_ask" in message: # It's TOB
+                self.aggregator.on_tob(int(message["timestamp"]), float(message["best_bid"]), float(message["best_ask"]))
+                logger.debug(f"Processed TOB from topic {msg.topic}: {message.get('timestamp')}")
+            elif "bids" in message and "asks" in message: # It's an order book update
+                if message["bids"] and message["asks"]:
+                    best_bid = float(message["bids"][0][0])
+                    best_ask = float(message["asks"][0][0])
+                    self.aggregator.on_tob(int(message["timestamp"]), best_bid, best_ask)
+                    logger.debug(f"Processed Order Book TOB from topic {msg.topic}: {message.get('timestamp')}")
+                else:
+                    logger.debug(f"Received empty bids or asks in order book update from topic {msg.topic}: {message}")
             else:
-                logger.debug(f"Received empty bids or asks in order book update: {message}")
+                logger.warning(f"Unknown order book message format from topic {msg.topic}: {message}")
+                errors_total.inc()
         else:
-            logger.warning(f"Unknown message format: {message}")
+            logger.warning(f"Unknown message topic: {msg.topic} or format: {message}")
             errors_total.inc()
 
         current_time = time.time()
@@ -356,9 +361,9 @@ class IndicatorCalculator:
         await self._connect_arango()
         logger.info(f"Starting Kafka consumer for topic: {config.KAFKA_TOPIC}")
         self.kafka_consumer = AIOKafkaConsumer(
-            config.KAFKA_TOPIC, # Assuming this topic contains both trades and TOB, or just trades
+            *config.KAFKA_TOPICS_LIST, # Subscribe to all topics in the list
             bootstrap_servers=config.KAFKA_BOOTSTRAP_SERVERS,
-            group_id=f"{config.QUEUE_ID}-orderbook-consumer",
+            group_id=f"{config.QUEUE_ID}-consumer", # Generic consumer group ID
             enable_auto_commit=True,
             sasl_mechanism="SCRAM-SHA-512",
             security_protocol="SASL_SSL",

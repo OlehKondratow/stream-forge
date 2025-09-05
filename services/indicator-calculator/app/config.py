@@ -36,7 +36,9 @@ VOLUME_PROFILE_PRICE_STEP: float = float(os.getenv("VOLUME_PROFILE_PRICE_STEP", 
 # Kafka общие параметры
 # ───────────────────────────────────────────────
 KAFKA_BOOTSTRAP_SERVERS: str = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9093")
-KAFKA_TOPIC: str = os.getenv("KAFKA_TOPIC", f"{SYMBOL.lower()}-orderbook") # Input topic for orderbook data
+KAFKA_TOPIC_ORDERBOOK: str = os.getenv("KAFKA_TOPIC_ORDERBOOK", f"{SYMBOL.lower()}-orderbook")
+KAFKA_TOPIC_TRADES: str = os.getenv("KAFKA_TOPIC_TRADES", f"{SYMBOL.lower()}-trades")
+KAFKA_TOPICS_LIST: list[str] = [KAFKA_TOPIC_ORDERBOOK, KAFKA_TOPIC_TRADES]
 
 KAFKA_USER_PRODUCER: str = os.getenv("KAFKA_USER_PRODUCER", "")
 KAFKA_PASSWORD_PRODUCER: str = os.getenv("KAFKA_PASSWORD_PRODUCER", "")
