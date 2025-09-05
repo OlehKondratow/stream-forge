@@ -5,7 +5,7 @@ prometheus_client
 aiokafka
 
 python-arango
-pandas-ta
+pandas-ta==0.3.14b0
 pandas
 numpy
 python-dotenv
