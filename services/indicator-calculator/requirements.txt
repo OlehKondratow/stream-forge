@@ -5,8 +5,8 @@ prometheus_client
 aiokafka
 
 python-arango
-pandas-ta==0.4.x
 pandas==2.2.3
-numpy>=2
+pandas_ta==0.3.14b0
+numpy==1.26.4
 python-dotenv
 uvloop
