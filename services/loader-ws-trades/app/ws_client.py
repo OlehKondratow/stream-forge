@@ -7,7 +7,7 @@ from app import config
 class BinanceWSClient:
     def __init__(self, symbol: str, stream_type: str):
         self.symbol = symbol.lower()
-        self.stream_type = stream_type # e.g., "trade"
+        self.stream_type = stream_type # e.g., "trade", "depth", "diffDepth"
         self.uri = self._build_uri()
         logger.info(f"Binance WebSocket Client initialized for URI: {self.uri}")
 

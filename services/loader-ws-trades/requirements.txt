@@ -1,3 +1,7 @@
-websockets
 uvloop
-orjson
+fastapi
+loguru
+python-dotenv
+aiokafka
+prometheus-client
+websockets
