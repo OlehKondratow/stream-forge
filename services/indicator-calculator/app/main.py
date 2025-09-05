@@ -3,6 +3,7 @@ import argparse
 import uvicorn
 from contextlib import asynccontextmanager
 from loguru import logger
+import sys
 import uvloop
 from fastapi import FastAPI
 
@@ -11,6 +12,10 @@ from app.metrics import metrics_router
 from app.telemetry import TelemetryProducer, close_telemetry
 from app.indicator_calculator import IndicatorCalculator
 from app.kafka_client import KafkaControlListener
+
+# Configure logger
+logger.remove()
+logger.add(sys.stderr, level=config.LOG_LEVEL)
 
 # Используем uvloop для повышения производительности
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())

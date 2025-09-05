@@ -27,10 +27,12 @@ try:
 except json.JSONDecodeError:
     raise ValueError("INDICATORS_CONFIG environment variable is not a valid JSON string.")
 
+LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
 # Candle Aggregation Settings
 CANDLE_INTERVAL: str = os.getenv("CANDLE_INTERVAL", "5m") # e.g., "1s", "5s", "1m"
 CANDLE_WINDOW_SIZE: int = int(os.getenv("CANDLE_WINDOW_SIZE", "40")) # Number of candles to keep for indicator calculation
-VOLUME_PROFILE_PRICE_STEP: float = float(os.getenv("VOLUME_PROFILE_PRICE_STEP", "0.0001")) # Price step for volume profile
+VOLUME_PROFILE_PRICE_STEP: float = float(os.getenv("VOLUME_PROFILE_PRICE_STEP", "0.00001")) # Price step for volume profile
 
 # ───────────────────────────────────────────────
 # Kafka общие параметры

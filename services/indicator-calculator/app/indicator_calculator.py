@@ -337,6 +337,14 @@ class IndicatorCalculator:
             "_key": f"{self.symbol}_{last_candle_ts}",
             "symbol": self.symbol,
             "timestamp": last_candle_ts,
+            "candle": {
+                "open": last_candle["open"],
+                "high": last_candle["high"],
+                "low": last_candle["low"],
+                "close": last_candle["close"],
+                "volume": last_candle["volume"],
+                "quote_volume": last_candle["quote_volume"]
+            },
             "indicators": calculated_indicators_dict,
             "volume_profile": last_candle.get("price_volume_distribution"),
             "metadata": {
