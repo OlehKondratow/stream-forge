@@ -7,6 +7,6 @@ aiokafka
 python-arango
 pandas-ta==0.3.14b0
 pandas
-numpy
+numpy==1.23.0
 python-dotenv
 uvloop
