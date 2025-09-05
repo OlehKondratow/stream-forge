@@ -333,12 +333,14 @@ class IndicatorCalculator:
             return
 
         # Use the timestamp of the last candle in the window for the document
-        
+        last_candle = self.aggregator.candles[-1]
+
         document = {
             "_key": f"{self.symbol}_{last_candle_ts}",
             "symbol": self.symbol,
             "timestamp": last_candle_ts,
             "indicators": calculated_indicators_dict,
+            "volume_profile": last_candle.get("price_volume_distribution"),
             "metadata": {
                 "source": "kafka_trades_tob", # Updated source
                 "processed_at": datetime.now(timezone.utc).isoformat(),
@@ -372,7 +374,7 @@ class IndicatorCalculator:
             sasl_plain_username=config.KAFKA_USER_CONSUMER,
             sasl_plain_password=config.KAFKA_PASSWORD_CONSUMER,
             ssl_context=config.get_ssl_context(),
-            auto_offset_reset="latest"
+            auto_offset_reset="earliest"
         )
         await self.kafka_consumer.start()
         logger.info(f"Kafka consumer connected to topics: {config.KAFKA_TOPICS_LIST}")
