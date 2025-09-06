@@ -1,176 +1,228 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { createChart } from 'lightweight-charts';
-import axios from 'axios';
+import React, { useEffect, useRef } from 'react';
+import { createChart, CrosshairMode, LineStyle } from 'lightweight-charts';
 
-// --- Helper Functions ---
+// --- Heatmap/Volume Profile Helpers ---
 
-// Function to determine color based on volume (simple linear scale)
 const getVolumeColor = (volume, minMax) => {
-  const { min, max } = minMax;
-  if (max === min) return 'rgba(0, 150, 255, 0.1)'; // Default color if all volumes are the same
-
-  const ratio = (volume - min) / (max - min);
-  const blue = 0;
-  const green = Math.round(255 * ratio);
-  const red = Math.round(255 * (1 - ratio));
-
-  return `rgba(${red}, ${green}, ${blue}, 0.2)`; // Use some transparency
+    const { min, max } = minMax;
+    if (max === min) return 'rgba(0, 150, 255, 0.1)';
+    const ratio = (volume - min) / (max - min);
+    const r = Math.round(255 * ratio);
+    const g = Math.round(255 * ratio);
+    const b = Math.round(255 * (1 - ratio));
+    return `rgba(${r}, ${g}, ${b}, 0.5)`;
 };
 
-// Custom Pane Renderer for the Heatmap
+// A complete IPrimitive implementation for the Heatmap
 class HeatmapRenderer {
-  constructor(data) {
-    this._data = data;
-  }
+    constructor(data) {
+        this._data = data;
+        this._renderer = null;
+    }
 
-  draw(target) {
-    target.useBitmapCoordinateSpace(scope => {
-      const ctx = scope.context;
-      const { from, to } = scope.horizontalLogicalRange;
+    // --- IPrimitive interface methods ---
 
-      const visibleData = this._data.filter(item => item.logicalIndex >= from && item.logicalIndex <= to);
+    attached(renderer) {
+        this._renderer = renderer;
+    }
 
-      if (visibleData.length === 0) return;
+    detached() {
+        this._renderer = null;
+    }
 
-      // Find min/max volume in the visible range for color scaling
-      let minVolume = Infinity;
-      let maxVolume = -Infinity;
-      visibleData.forEach(item => {
-        if (item.volumeProfile) {
-          Object.values(item.volumeProfile).forEach(vol => {
-            if (vol < minVolume) minVolume = vol;
-            if (vol > maxVolume) maxVolume = vol;
-          });
+    update() {
+        // Request a redraw on every update to keep the heatmap in sync
+        if (this._renderer) {
+            this._renderer.requestRedraw();
         }
-      });
+    }
 
-      const minMax = { min: minVolume, max: maxVolume };
+    draw(target) {
+        target.useBitmapCoordinateSpace(scope => {
+            if (scope.context === null) return;
+            const ctx = scope.context;
+            const { from, to } = scope.horizontalLogicalRange;
 
-      visibleData.forEach(item => {
-        if (!item.volumeProfile) return;
+            const visibleData = this._data.filter(item => item.logicalIndex >= from && item.logicalIndex <= to);
+            if (visibleData.length === 0) return;
 
-        const bar = scope.bars.at(item.logicalIndex);
-        if (bar === null) return;
+            let minVolume = Infinity;
+            let maxVolume = -Infinity;
+            visibleData.forEach(item => {
+                if (item.volumeProfile) {
+                    Object.values(item.volumeProfile).forEach(vol => {
+                        if (vol < minVolume) minVolume = vol;
+                        if (vol > maxVolume) maxVolume = vol;
+                    });
+                }
+            });
 
-        Object.entries(item.volumeProfile).forEach(([priceStr, volume]) => {
-          const price = parseFloat(priceStr);
-          const y = scope.verticalPriceToCoordinate(price);
-          
-          // We need to find the y for the next price step to draw a rectangle
-          // This is a simplification: we draw a small, fixed-height rectangle
-          const yNext = scope.verticalPriceToCoordinate(price - 0.00001); // Assuming a small step
-          const height = Math.abs(yNext - y);
+            const minMax = { min: minVolume, max: maxVolume };
 
-          ctx.fillStyle = getVolumeColor(volume, minMax);
-          ctx.fillRect(bar.x - bar.barWidth / 2, y - height / 2, bar.barWidth, height);
+            visibleData.forEach(item => {
+                if (!item.volumeProfile) return;
+                const bar = scope.bars.at(item.logicalIndex);
+                if (bar === null) return;
+
+                const priceStep = (item.high - item.low) / Object.keys(item.volumeProfile).length;
+
+                Object.entries(item.volumeProfile).forEach(([priceStr, volume]) => {
+                    const price = parseFloat(priceStr);
+                    const y = scope.verticalPriceToCoordinate(price);
+                    if (y === null) return;
+                    
+                    const yNext = scope.verticalPriceToCoordinate(price - priceStep);
+                    const height = yNext === null ? 2 : Math.max(2, Math.abs(yNext - y));
+
+                    ctx.fillStyle = getVolumeColor(volume, minMax);
+                    ctx.fillRect(bar.x - bar.barWidth / 2, y - height / 2, bar.barWidth, height);
+                });
+            });
         });
-      });
-    });
-  }
+    }
 }
 
+// --- Data Generation ---
+function generateCandlestickData() {
+    const data = [];
+    let currentTime = Math.floor(Date.now() / 1000);
+    let currentPrice = 100;
+    
+    const createCandle = (open, high, low, close, time) => {
+        const volumeProfile = {};
+        const numPriceLevels = 15;
+        const priceRange = high - low;
+        if (priceRange > 0) {
+            for (let i = 0; i < numPriceLevels; i++) {
+                const price = low + (priceRange * i / numPriceLevels);
+                const distanceToClose = Math.abs(price - close);
+                const volume = Math.random() * 100 * (1 - distanceToClose / priceRange);
+                volumeProfile[price.toFixed(2)] = volume;
+            }
+        }
+        return { time, open, high, low, close, volumeProfile };
+    };
+
+    for (let i = 0; i < 100; i++) {
+        const open = currentPrice;
+        let close;
+        if (i > 70) { // Uptrend
+            close = open + Math.random() * 2;
+        } else if (i > 30) { // Sideways
+            close = open + (Math.random() - 0.5) * 2;
+        } else { // Downtrend
+            close = open - Math.random() * 2;
+        }
+        const high = Math.max(open, close) + Math.random();
+        const low = Math.min(open, close) - Math.random();
+        data.unshift(createCandle(open, high, low, close, currentTime));
+        currentPrice = close;
+        currentTime -= 300;
+    }
+    return data;
+}
+
+// --- Indicator Calculations (unchanged) ---
+function calculateRSI(data, period = 14) {
+    const rsiData = [];
+    let gains = 0;
+    let losses = 0;
+    for (let i = 1; i <= period; i++) {
+        const change = data[i].close - data[i - 1].close;
+        if (change > 0) gains += change; else losses -= change;
+    }
+    let avgGain = gains / period;
+    let avgLoss = losses / period;
+    rsiData.push({ time: data[period].time, value: 100 - (100 / (1 + avgGain / avgLoss)) });
+    for (let i = period + 1; i < data.length; i++) {
+        const change = data[i].close - data[i - 1].close;
+        avgGain = (avgGain * (period - 1) + (change > 0 ? change : 0)) / period;
+        avgLoss = (avgLoss * (period - 1) + (change < 0 ? -change : 0)) / period;
+        const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+        rsiData.push({ time: data[i].time, value: 100 - (100 / (1 + rs)) });
+    }
+    return rsiData;
+}
+function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+    const macdLine = [], signalLine = [], hist = [];
+    const calculateEMA = (source, period) => {
+        const ema = [source[0]];
+        const multiplier = 2 / (period + 1);
+        for (let i = 1; i < source.length; i++) {
+            ema.push((source[i] - ema[i - 1]) * multiplier + ema[i - 1]);
+        }
+        return ema;
+    };
+    const closePrices = data.map(d => d.close);
+    const emaFast = calculateEMA(closePrices, fastPeriod);
+    const emaSlow = calculateEMA(closePrices, slowPeriod);
+    const macdValues = [];
+    for (let i = slowPeriod - 1; i < data.length; i++) {
+        const macdValue = emaFast[i] - emaSlow[i];
+        macdLine.push({ time: data[i].time, value: macdValue });
+        macdValues.push(macdValue);
+    }
+    const emaSignal = calculateEMA(macdValues, signalPeriod);
+    for (let i = signalPeriod - 1; i < macdLine.length; i++) {
+        signalLine.push({ time: macdLine[i].time, value: emaSignal[i] });
+        const histValue = macdLine[i].value - emaSignal[i];
+        hist.push({ time: macdLine[i].time, value: histValue, color: histValue >= 0 ? 'rgba(0, 255, 0, 0.4)' : 'rgba(255, 0, 127, 0.4)' });
+    }
+    return { macdLine, signalLine, hist };
+}
+
+// --- Chart Component ---
 const ChartComponent = () => {
-  const chartContainerRef = useRef();
-  const chartRef = useRef();
-  const [data, setData] = useState([]);
+    const chartContainerRef = useRef();
 
-  useEffect(() => {
-    axios.get('http://localhost:8000/api/data?symbol=PIXELUSDT')
-      .then(response => {
-        const formattedData = response.data.map(item => ({
-          time: item.timestamp / 1000, // Lightweight Charts expects seconds
-          open: item.candle.open,
-          high: item.candle.high,
-          low: item.candle.low,
-          close: item.candle.close,
-          volume: item.candle.volume,
-          rsi: item.indicators.rsi_14,
-          macd: item.indicators.MACD_12_26_9,
-          macd_signal: item.indicators.MACDs_12_26_9,
-          macd_hist: item.indicators.MACDh_12_26_9,
-          volumeProfile: item.volume_profile,
-        }));
-        setData(formattedData);
-      })
-      .catch(error => console.error("Error fetching data:", error));
-  }, []);
+    useEffect(() => {
+        const chart = createChart(chartContainerRef.current, {
+            width: chartContainerRef.current.clientWidth,
+            height: 700,
+            layout: { background: { type: 'solid', color: '#000000' }, textColor: '#E0E0E0' },
+            grid: { vertLines: { color: '#222222' }, horzLines: { color: '#222222' } },
+            crosshair: { mode: CrosshairMode.Normal, vertLine: { style: LineStyle.Dashed, labelVisible: true }, horzLine: { style: LineStyle.Dashed, labelVisible: true } },
+            rightPriceScale: { borderColor: '#222222' },
+            timeScale: { borderColor: '#222222' },
+        });
 
-  useEffect(() => {
-    if (data.length === 0) return;
+        const handleResize = () => chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+        window.addEventListener('resize', handleResize);
 
-    const handleResize = () => {
-      chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
-    };
+        const candleSeries = chart.addCandlestickSeries({
+            upColor: '#00ff00', downColor: '#ff007f', borderVisible: false,
+            wickUpColor: '#00ff00', wickDownColor: '#ff007f',
+            crosshairMarkerVisible: true,
+        });
 
-    chartRef.current = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 600,
-      layout: {
-        background: { color: '#121212' },
-        textColor: '#ffffff',
-      },
-      grid: {
-        vertLines: { color: '#333' },
-        horzLines: { color: '#333' },
-      },
-      crosshair: {
-        mode: 'normal',
-      },
-    });
+        const rsiSeries = chart.addLineSeries({ color: '#00ffff', lineWidth: 2, priceScaleId: 'rsi-pane', crosshairMarkerVisible: true });
+        chart.priceScale('rsi-pane').applyOptions({ height: 100, borderColor: '#222222' });
 
-    // --- Main Pane: Candles and Heatmap ---
-    const candleSeries = chartRef.current.addCandlestickSeries({
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      borderDownColor: '#ef5350',
-      borderUpColor: '#26a69a',
-      wickDownColor: '#ef5350',
-      wickUpColor: '#26a69a',
-    });
-    candleSeries.setData(data);
+        const macdSeries = chart.addLineSeries({ color: '#ff8c00', lineWidth: 2, priceScaleId: 'macd-pane', crosshairMarkerVisible: true });
+        const macdSignalSeries = chart.addLineSeries({ color: '#9d00ff', lineWidth: 2, priceScaleId: 'macd-pane', crosshairMarkerVisible: true });
+        const macdHistSeries = chart.addHistogramSeries({ priceScaleId: 'macd-pane', base: 0 });
+        chart.priceScale('macd-pane').applyOptions({ height: 100, borderColor: '#222222' });
 
-    // Add custom heatmap renderer
-    const heatmapData = data.map((item, index) => ({ ...item, logicalIndex: index }));
-    const heatmapRenderer = new HeatmapRenderer(heatmapData);
-    candleSeries.attachPrimitive(heatmapRenderer);
+        const candleData = generateCandlestickData();
+        const indexedCandleData = candleData.map((item, index) => ({ ...item, logicalIndex: index }));
+        const rsiData = calculateRSI(candleData);
+        const { macdLine, signalLine, hist } = calculateMACD(candleData);
 
-    // --- Volume Pane ---
-    const volumeSeries = chartRef.current.addHistogramSeries({
-      color: '#26a69a',
-      priceFormat: {
-        type: 'volume',
-      },
-      priceScaleId: '', // Set to an empty string to display the volume scale on the left
-    });
-    volumeSeries.setData(data.map(item => ({ time: item.time, value: item.volume, color: item.close > item.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)' })));
+        candleSeries.setData(indexedCandleData);
+        rsiSeries.setData(rsiData);
+        macdSeries.setData(macdLine);
+        macdSignalSeries.setData(signalLine);
+        macdHistSeries.setData(hist);
 
-    // --- RSI Pane ---
-    const rsiPane = chartRef.current.addPriceScale('rsi', { scaleMargins: { top: 0.8, bottom: 0 } });
-    const rsiSeries = chartRef.current.addLineSeries({
-      priceScaleId: 'rsi',
-      color: '#ffc107',
-      lineWidth: 2,
-    });
-    rsiSeries.setData(data.map(item => ({ time: item.time, value: item.rsi })));
+        const heatmapRenderer = new HeatmapRenderer(indexedCandleData);
+        candleSeries.attachPrimitive(heatmapRenderer);
+        
+        chart.timeScale().fitContent();
 
-    // --- MACD Pane ---
-    const macdPane = chartRef.current.addPriceScale('macd', { scaleMargins: { top: 0.8, bottom: 0 } });
-    const macdSeries = chartRef.current.addLineSeries({ priceScaleId: 'macd', color: '#2196f3', lineWidth: 2 });
-    const macdSignalSeries = chartRef.current.addLineSeries({ priceScaleId: 'macd', color: '#f44336', lineWidth: 2 });
-    const macdHistSeries = chartRef.current.addHistogramSeries({ priceScaleId: 'macd', color: '#9c27b0' });
-    macdSeries.setData(data.map(item => ({ time: item.time, value: item.macd })))
-    macdSignalSeries.setData(data.map(item => ({ time: item.time, value: item.macd_signal })))
-    macdHistSeries.setData(data.map(item => ({ time: item.time, value: item.macd_hist, color: item.macd_hist > 0 ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)' })))
+        return () => { window.removeEventListener('resize', handleResize); chart.remove(); };
+    }, []);
 
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chartRef.current.remove();
-    };
-  }, [data]);
-
-  return <div ref={chartContainerRef} style={{ position: 'relative' }} />;
+    return <div ref={chartContainerRef} />;
 };
 
 export default ChartComponent;

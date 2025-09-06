@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: visualizer
+  namespace: stf
   labels:
     app: visualizer
 spec:
@@ -16,25 +17,27 @@ spec:
     spec:
       containers:
         - name: visualizer
-          image: streamforge-visualizer:latest
+          image: registry.dmz.home/kinga/stream-forge/visualizer:0.1.37
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
           env:
             - name: ARANGO_URL
-              value: "http://stf-arango-single:8529"
+              value: "http://abase-3.dmz.home:8529"
             - name: ARANGO_DB
-              value: "stream_forge"
+              value: "streamforge"
             - name: ARANGO_USER
-              valueFrom:
-                secretKeyRef:
-                  name: arangodb-credentials
-                  key: user
+              value: "root"
             - name: ARANGO_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: arangodb-credentials
-                  key: password
+                  name: stf-shared-secret
+                  key: ARANGO_PASSWORD
+          volumeMounts:
+            - name: kafka-ca-volume
+              mountPath: /usr/local/share/ca-certificates/ca.crt
+              subPath: dev-ca.crt
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /
@@ -47,3 +50,10 @@ spec:
               port: 80
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: kafka-ca-volume
+          configMap:
+            name: dev-ca-certificates
+      serviceAccountName: full-access-sa # Assuming a service account with necessary permissions
+      nodeSelector:
+        streamforge-node: "true" # Assuming a node selector

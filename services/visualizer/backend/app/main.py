@@ -26,14 +26,14 @@ app.include_router(data.router, prefix="/api", tags=["data"])
 
 # --- Static Files and Frontend Hosting ---
 
-STATIC_FILES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "static"))
+STATIC_FILES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "static"))
 
 if os.path.exists(STATIC_FILES_DIR):
-    app.mount("/static", StaticFiles(directory=os.path.join(STATIC_FILES_DIR, "static")), name="static")
+    app.mount("/static", StaticFiles(directory=STATIC_FILES_DIR), name="static")
 
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
-        index_path = os.path.join(STATIC_FILES_DIR, "index.html")
+        index_path = os.path.join(os.path.dirname(__file__), "index.html")
         if os.path.exists(index_path):
             return FileResponse(index_path)
         else:
