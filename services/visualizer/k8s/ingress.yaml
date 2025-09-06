@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: visualizer-ingress
+  annotations:
+    # Annotations for your specific Ingress controller would go here
+    # For example, for NGINX Ingress Controller:
+    # nginx.ingress.kubernetes.io/rewrite-target: /
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+    - host: visualizer.streamforge.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: visualizer-service
+                port:
+                  number: 80

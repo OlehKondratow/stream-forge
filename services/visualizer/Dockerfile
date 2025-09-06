@@ -1,7 +1,38 @@
-FROM registry.dmz.home/kinga/stream-forge/base:v0.1.3
+# --- Stage 1: Build Frontend ---
+FROM node:18-alpine AS builder
+
+WORKDIR /app/frontend
+
+# Copy package configuration and install dependencies
+COPY frontend/package.json .
+# In a real project, you would also copy package-lock.json or yarn.lock
+RUN npm install
+
+# Copy the rest of the frontend source code
+COPY frontend/ .
+
+# Build the React application
+RUN npm run build
+
+# --- Stage 2: Build Backend and Serve Frontend ---
+FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY app ./app
+# Install backend dependencies
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["python", "-m", "app.main"]
+# Copy the backend code
+COPY backend/ .
+
+# Copy the built frontend from the builder stage
+COPY --from=builder /app/frontend/build ./static
+
+# Expose the port the app will run on
+EXPOSE 80
+
+# Command to run the application
+# We use port 80 as it's the standard HTTP port.
+# The --host 0.0.0.0 is crucial to make the server accessible from outside the container.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]

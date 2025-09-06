@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: visualizer
+  labels:
+    app: visualizer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: visualizer
+  template:
+    metadata:
+      labels:
+        app: visualizer
+    spec:
+      containers:
+        - name: visualizer
+          image: streamforge-visualizer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          env:
+            - name: ARANGO_URL
+              value: "http://stf-arango-single:8529"
+            - name: ARANGO_DB
+              value: "stream_forge"
+            - name: ARANGO_USER
+              valueFrom:
+                secretKeyRef:
+                  name: arangodb-credentials
+                  key: user
+            - name: ARANGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: arangodb-credentials
+                  key: password
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
