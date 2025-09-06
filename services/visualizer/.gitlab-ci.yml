@@ -1,7 +1,7 @@
-# Note: This pipeline is adapted for a service with both a Node.js frontend and a Python backend.
-# The standard .build_python_service template might not be suitable.
-
 include:
+  - project: 'kinga/stream-forge'
+    ref: main
+    file: '/.gitlab/ci-templates/Python-Service.gitlab-ci.yml'
   - project: 'kinga/stream-forge'
     ref: main
     file: '/.gitlab/ci-templates/Kubernetes-Deploy.gitlab-ci.yml'
@@ -13,32 +13,37 @@ variables:
 
 stages:
   - build
+  - test
   - deploy
 
 build-visualizer:
-  stage: build
-  image: docker:20.10.16
-  services:
-    - docker:20.10.16-dind
-  before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-  script:
-    - echo "Building Docker image for $SERVICE_NAME..."
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE:latest -f $SERVICE_PATH/Dockerfile .
-    - echo "Pushing Docker image to registry..."
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker push $CI_REGISTRY_IMAGE:latest
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      changes:
-        - "services/visualizer/**/*"
+  extends: .build_python_service
+  variables:
+    SERVICE_NAME: visualizer
+    SERVICE_PATH: services/visualizer
+    CI_REGISTRY_IMAGE: $CI_REGISTRY/kinga/stream-forge/visualizer
 
-deploy-visualizer:
-  stage: deploy
-  extends: .deploy_kubernetes_service
+test-visualizer:
+  extends: .test_python_service
   needs:
     - build-visualizer
   variables:
-    # This variable should point to the directory containing all k8s manifests for the service.
-    # The deployment script is expected to apply all files in this directory.
+    SERVICE_NAME: visualizer
+    SERVICE_PATH: services/visualizer
+  when: manual # User can change this to on_success later
+
+integration-test-visualizer:
+  extends: .integration_test_python_service
+  needs:
+    - test-visualizer
+  variables:
+    SERVICE_NAME: visualizer
+    SERVICE_PATH: services/visualizer
+  when: manual # User can change this to on_success later
+
+deploy-visualizer:
+  extends: .deploy_kubernetes_service
+  needs:
+    - integration-test-visualizer
+  variables:
     K8S_MANIFEST_PATH: services/visualizer/k8s/
