@@ -19,8 +19,6 @@
 
 ## Architecture Overview
 
-![StreamForge Data Flow Diagram](docs/digram.png)
-
 ## 1.1. The Challenge of Cryptocurrency Data
 
 In the fast-paced world of digital assets, cryptocurrency data is the lifeblood of analytics and automated decision-making. This data is characterized by extreme volatility, 24/7 availability, and immense volume, encompassing everything from high-frequency trades to continuous order book updates. These characteristics demand a new generation of data pipelines—ones that are not only high-performance but also exceptionally reliable.
